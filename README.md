@@ -43,6 +43,41 @@ U 本位合约公开接口，以及你自己的账户（**只读**）。
 > `pkill -f` 会把执行它的那个 shell 自己也匹配上杀掉。用 `scripts/perpdesk.sh`，
 > 它按 PID 文件管理。
 
+## 部署到服务器
+
+```bash
+# 服务器上（Ubuntu 22.04/24.04，root）
+git clone https://github.com/mcalso/perpdesk.git /opt/perpdesk
+apt-get install -y nginx apache2-utils python3-venv nodejs   # node 建议 20+
+mkdir -p /var/log/perpdesk
+
+# Basic Auth（页面上是真实持仓，务必设）
+htpasswd -cB /etc/nginx/perpdesk.htpasswd <用户名>
+
+# nginx 与 systemd
+cp /opt/perpdesk/deploy/nginx.conf /etc/nginx/sites-available/perpdesk
+ln -sf /etc/nginx/sites-available/perpdesk /etc/nginx/sites-enabled/perpdesk
+rm -f /etc/nginx/sites-enabled/default
+cp /opt/perpdesk/deploy/perpdesk.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now perpdesk nginx
+```
+
+凭据 `backend/.env` 单独 scp 过去（不进 git），然后 `./scripts/deploy.sh` 可一键更新。
+
+小内存机器（≤2GB）注意先加 swap，否则 `npm run build` 会 OOM：
+
+```bash
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+> 装包时若遇 `Could not get lock /var/lib/dpkg/lock-frontend`，是新系统的
+> `unattended-upgrades` 在跑首次全量更新。别去抢锁，加
+> `apt-get -o DPkg::Lock::Timeout=420` 让 apt 自己等。
+
+**安全边界**：后端自身无鉴权，systemd 里强制只监听 `127.0.0.1`，公网流量必须经
+nginx（鉴权在那里）。不要把 `PERPDESK_HOST` 改成 `0.0.0.0`。
+
 ## 配置
 
 `backend/.env`（已 gitignore，权限 600）：
