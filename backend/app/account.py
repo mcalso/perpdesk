@@ -238,6 +238,8 @@ class AccountCache:
     def __init__(self) -> None:
         self.balances: list[dict] = []
         self.positions: list[dict] = []
+        # 持仓变化时回调，让行情中心把这些标的加入实时订阅
+        self.on_positions: Any = None
         self.last_ok = 0.0
         self.last_error = ""
         self._task: asyncio.Task | None = None
@@ -260,9 +262,13 @@ class AccountCache:
             if configured():
                 try:
                     self.balances = await balances()
+                    prev = {p["symbol"] for p in self.positions}
                     self.positions = await positions()
                     self.last_ok = time.time()
                     self.last_error = ""
+                    now_syms = {p["symbol"] for p in self.positions}
+                    if now_syms != prev and self.on_positions:
+                        self.on_positions(sorted(now_syms))
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

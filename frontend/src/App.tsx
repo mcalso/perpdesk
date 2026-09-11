@@ -23,15 +23,20 @@ function StatusChip() {
   if (err) return <div className="status-chip"><span className="dot bad" />后端未连接</div>
   if (!s) return <div className="status-chip">…</div>
 
-  // REST 快照超过 2 分钟没刷新就提示，通常是被 Binance 限速了
-  const restStale = s.restAgeSec === null || s.restAgeSec > 120
+  // 标记价直接决定持仓估值，它陈旧比 24h 行情陈旧严重得多，单独标出来
+  const markStale = s.premiumAgeSec === null || s.premiumAgeSec > 30
+  const tickStale = s.restAgeSec === null || s.restAgeSec > 120
   return (
     <div className="status-chip">
-      <span title={s.restError || '全市场 24h 行情，REST 轮询'}>
-        <span className={`dot ${restStale ? 'warn' : 'ok'}`} />
-        行情 {s.snapshot} · {s.restAgeSec === null ? '未就绪' : `${s.restAgeSec.toFixed(0)}s 前`}
+      <span title={s.restError || '标记价与资金费率，REST 轮询（持仓估值依赖它）'}>
+        <span className={`dot ${markStale ? 'warn' : 'ok'}`} />
+        标记价 {s.premium} · {s.premiumAgeSec === null ? '未就绪' : `${s.premiumAgeSec.toFixed(0)}s 前`}
       </span>
-      <span title="自选标的实时盘口，WebSocket">
+      <span title="全市场 24h 涨跌与成交额">
+        <span className={`dot ${tickStale ? 'warn' : 'ok'}`} />
+        行情 {s.snapshot}
+      </span>
+      <span title="自选与持仓标的的实时盘口，WebSocket">
         <span className={`dot ${s.wsConnected ? 'ok' : 'bad'}`} />
         实时 {s.wsSymbols}
       </span>

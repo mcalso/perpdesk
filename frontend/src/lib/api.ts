@@ -11,6 +11,7 @@ export interface Ticker {
 
 export interface HubStatus {
   symbols: number; snapshot: number; premium: number
+  premiumAgeSec: number | null
   restAgeSec: number | null; restError: string
   wsConnected: boolean; wsSymbols: number
   bookAgeSec: number | null; subscribers: number

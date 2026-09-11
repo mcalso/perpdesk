@@ -10,26 +10,25 @@ ENV_PATH = BASE_DIR / "backend" / ".env"
 # Binance U 本位合约。直连比走代理快，客户端一律 trust_env=False。
 FAPI_BASE = "https://fapi.binance.com"
 
-# ⚠️ 用 stream.binancefuture.com 而不是 fstream.binance.com。
-# 两者都是官方合约 WS 端点，但 fstream 的全市场数组流（!ticker@arr /
-# !miniTicker@arr / !markPrice@arr）以及 aggTrade 实测**连得上却一帧不推**
-# （SUBSCRIBE 甚至会返回成功应答），国内机器与境外机器都能复现，不是网络问题。
+# ⚠️ 全市场 WS 数组流两个官方端点都不可用，行情一律以 REST 为权威源：
+#   - fstream.binance.com：!ticker@arr / !markPrice@arr / aggTrade 连得上却一帧不推
+#     （SUBSCRIBE 还会返回成功应答），国内与境外机器都能复现。
+#   - stream.binancefuture.com：推得动，但数据不可信 —— 实测 KORUUSDT 标记价
+#     报 498.27（真实 22.91，偏差 2079%，且指数价/结算价全等于同一个值、
+#     资金费率为 0），另有多个活跃标的长时间完全不推送（含真实持仓）。
+# 单标的 bookTicker 流在两个端点上都稳定可靠，仅用它做自选与持仓的实时价。
 # 详见 docs/DATA_SOURCES.md。
-FSTREAM_BASE = "wss://stream.binancefuture.com"
-
-# 全市场流：!ticker@arr 给 24h 行情，!markPrice@arr@1s 给标记价 + 资金费率。
-# 一条连接喂所有前端，且完全不消耗 REST 权重。
-MARKET_STREAMS = "!ticker@arr/!markPrice@arr@1s"
+FSTREAM_BASE = "wss://fstream.binance.com"
 
 HOST = os.getenv("PERPDESK_HOST", "127.0.0.1")
 PORT = int(os.getenv("PERPDESK_PORT", "18090"))
 
-# 全市场行情以 WS 为主。REST 只在两种情况下用：
-#   1) 启动首屏（WS 的数组流是增量推送，要几十秒才覆盖全市场）；
-#   2) WS 断流超过 WS_STALE_SEC 时兜底 —— fstream 那次故障说明端点会坏，
-#      留一条退路，但正常情况下一次也不会调用。
-WS_STALE_SEC = 45.0
-REST_POLL_INTERVAL = 30.0
+# REST 轮询是全市场行情的权威源。权重预算（独占机器上限 2400/分钟）：
+#   premiumIndex 权重 10，5s 一次 = 120/分钟   —— 标记价与资金费率，持仓估值靠它
+#   ticker/24hr  权重 40，20s 一次 = 120/分钟  —— 涨跌幅与成交额，变化慢，无需更快
+# 合计约 240/分钟，占上限一成。失败按 1.6 倍退避，并始终保留上一份快照。
+PREMIUM_POLL_INTERVAL = 5.0
+TICKER_POLL_INTERVAL = 20.0
 REST_POLL_MAX_INTERVAL = 180.0
 
 # exchangeInfo 刷新间隔（秒），让新上架合约无需重启即可出现

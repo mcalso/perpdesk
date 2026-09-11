@@ -1,18 +1,21 @@
 """全市场行情快照中心。
 
-三条数据通道，各司其职（详见 docs/DATA_SOURCES.md）：
+两条数据通道（详见 docs/DATA_SOURCES.md）：
 
-* **全市场 24h 行情 + 标记价/资金费率** —— WS 合并流 `!ticker@arr` +
-  `!markPrice@arr@1s`，1 秒一推，零 REST 权重。注意这两个都是**增量**流，
-  只推有变化的标的，所以快照要累积更新而不是整体替换。
-* **自选标的实时盘口** —— WS `bookTicker` 合并流，提供买一/卖一。
-* **REST** —— 只做两件事：启动首屏填充（增量流要几十秒才覆盖全市场），
-  以及 WS 断流超时后的兜底轮询。正常运行时一次都不会调用。
+* **REST 轮询（权威源）** —— `premiumIndex` 5s 给标记价与资金费率，
+  `ticker/24hr` 20s 给涨跌幅与成交额。全市场 WS 数组流在两个官方端点上
+  分别表现为「不推数据」和「数据错误/缺失」，不能作为行情来源。
+* **WS bookTicker（实时层）** —— 只订阅自选与持仓标的，提供实时买一/卖一。
+  这是实测唯一稳定可靠的流。
+
+也就是说：你关注的标的是实时的，全市场榜单 5~20 秒刷新。正确性优先于实时性 ——
+标记价直接决定持仓估值，宁可慢几秒也不能错。
 """
 import asyncio
 import json
 import logging
 import time
+from typing import Any
 
 import websockets
 
@@ -27,14 +30,14 @@ class TickerHub:
         self.premium: dict[str, dict] = {}       # symbol -> 标记价/资金费率
         self.book: dict[str, dict] = {}          # symbol -> 实时买一卖一（仅自选）
         self.meta: dict[str, dict] = {}
-        self.market_ws_connected = False
-        self.last_market_at = 0.0
+        self.last_premium_at = 0.0
         self.ws_connected = False
         self.ws_symbols: list[str] = []
         self.last_rest_ok = 0.0
         self.last_rest_error = ""
-        self.rest_fallback_used = 0
         self.last_book_at = 0.0
+        # 由 main 注入：自选变化时重新汇总「自选 ∪ 持仓」
+        self.on_watchlist_change: Any = None
         self._subscribers: set[asyncio.Queue] = set()
         self._tasks: list[asyncio.Task] = []
         self._resubscribe = asyncio.Event()
@@ -57,8 +60,8 @@ class TickerHub:
             log.warning("initial ticker snapshot failed, WS will fill in: %s", exc)
 
         self._tasks = [
-            asyncio.create_task(self._market_loop(), name="hub-market"),
-            asyncio.create_task(self._rest_fallback_loop(), name="hub-rest-fallback"),
+            asyncio.create_task(self._premium_loop(), name="hub-premium"),
+            asyncio.create_task(self._ticker_loop(), name="hub-ticker"),
             asyncio.create_task(self._meta_loop(), name="hub-meta"),
             asyncio.create_task(self._book_loop(), name="hub-book"),
             asyncio.create_task(self._broadcast_loop(), name="hub-broadcast"),
@@ -74,99 +77,46 @@ class TickerHub:
                 pass
         self._tasks.clear()
 
-    # ---------- WS：全市场行情（主数据源） ----------
+    # ---------- REST 轮询：全市场行情（权威源） ----------
 
-    async def _market_loop(self) -> None:
-        url = f"{config.FSTREAM_BASE}/stream?streams={config.MARKET_STREAMS}"
-        backoff = 1.0
+    async def _premium_loop(self) -> None:
+        """标记价 + 资金费率。持仓估值依赖它，所以刷得比 24h 行情勤。"""
+        delay = config.PREMIUM_POLL_INTERVAL
         while True:
             try:
-                async with websockets.connect(
-                    url, ping_interval=20, ping_timeout=20, proxy=None, max_size=32 << 20
-                ) as ws:
-                    self.market_ws_connected = True
-                    backoff = 1.0
-                    log.info("market ws connected: %s", config.MARKET_STREAMS)
-                    async for raw in ws:
-                        self._handle_market(json.loads(raw))
-                        self.last_market_at = time.time()
+                rows = await binance.premium_index(retries=1)
+                if rows:
+                    self.premium = {k: v for k, v in rows.items()
+                                    if not self.meta or k in self.meta}
+                    self.last_premium_at = time.time()
+                    self.last_rest_error = ""
+                    delay = config.PREMIUM_POLL_INTERVAL
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.market_ws_connected = False
-                log.warning("market ws dropped (%s), retry in %.0fs", exc, backoff)
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 30.0)
+                self.last_rest_error = str(exc)[:120]
+                delay = min(delay * 1.6, config.REST_POLL_MAX_INTERVAL)
+                log.warning("premiumIndex poll failed (%s), next in %.0fs", exc, delay)
+            await asyncio.sleep(delay)
 
-    def _handle_market(self, msg: dict) -> None:
-        """combined 帧按 stream 名分流。
-
-        payload 里的 `st` 是合约品种标记（1=U 本位 UM，2=币本位 CM）——
-        CM 合并进来之后同一条流里两种都有，不过滤会把币本位混进 USDT 列表。
-        """
-        stream = msg.get("stream", "")
-        rows = msg.get("data") or []
-        if not isinstance(rows, list):
-            rows = [rows]
-
-        if stream.startswith("!ticker"):
-            for r in rows:
-                sym = r.get("s")
-                if not sym or r.get("st") not in (None, 1):
-                    continue
-                if self.meta and sym not in self.meta:
-                    continue
-                self.snapshot[sym] = binance.norm_ws_ticker(r)
-        elif stream.startswith("!markPrice"):
-            for r in rows:
-                sym = r.get("s")
-                if not sym or r.get("st") not in (None, 1):
-                    continue
-                if self.meta and sym not in self.meta:
-                    continue
-                self.premium[sym] = {
-                    "markPrice": float(r.get("p") or 0),
-                    "indexPrice": float(r.get("i") or 0),
-                    "fundingRate": float(r.get("r") or 0),
-                    "nextFundingTime": int(r.get("T") or 0),
-                }
-
-    # ---------- REST 兜底：只在 WS 断流时启用 ----------
-
-    async def _rest_fallback_loop(self) -> None:
-        delay = config.REST_POLL_INTERVAL
-        # 还没收到过 WS 数据时以启动时刻计时，否则刚启动的一瞬间会被误判成断流，
-        # 白白多打一次权重 40 的接口。
-        started = time.time()
+    async def _ticker_loop(self) -> None:
+        """24h 涨跌幅与成交额。变化慢，20s 足够，权重也更贵（40）。"""
+        delay = config.TICKER_POLL_INTERVAL
         while True:
-            await asyncio.sleep(5.0)
-            last = self.last_market_at or started
-            if time.time() - last < config.WS_STALE_SEC:
-                delay = config.REST_POLL_INTERVAL
-                continue
-            # WS 久无数据，退回 REST 拉一次，避免前端长时间看陈旧价格
             try:
                 rows = await binance.tickers_24h(retries=1)
                 if rows:
-                    self.snapshot.update(
-                        {k: v for k, v in rows.items() if not self.meta or k in self.meta}
-                    )
+                    # 保留而非替换：拿不到的标的宁可用旧值，也别从榜单上消失
+                    self.snapshot.update({k: v for k, v in rows.items()
+                                          if not self.meta or k in self.meta})
                     self.last_rest_ok = time.time()
-                    self.last_rest_error = ""
-                    self.rest_fallback_used += 1
-                    log.warning("market ws stale, fell back to REST (#%d)", self.rest_fallback_used)
-                try:
-                    rows = await binance.premium_index(retries=1)
-                    self.premium.update(
-                        {k: v for k, v in rows.items() if not self.meta or k in self.meta}
-                    )
-                except Exception as exc:
-                    log.debug("premiumIndex fallback failed: %s", exc)
-                delay = config.REST_POLL_INTERVAL
+                    delay = config.TICKER_POLL_INTERVAL
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 self.last_rest_error = str(exc)[:120]
                 delay = min(delay * 1.6, config.REST_POLL_MAX_INTERVAL)
-                log.warning("REST fallback failed (%s), next in %.0fs", exc, delay)
+                log.warning("ticker/24hr poll failed (%s), next in %.0fs", exc, delay)
             await asyncio.sleep(delay)
 
     async def _meta_loop(self) -> None:
@@ -183,8 +133,12 @@ class TickerHub:
     # ---------- WS：自选标的实时盘口 ----------
 
     def set_ws_symbols(self, symbols: list[str]) -> None:
-        """自选列表变化时调用，触发 WS 重新订阅。"""
-        wanted = [s.upper() for s in symbols][: config.WS_MAX_STREAMS]
+        """设定要实时订阅的标的（自选 ∪ 持仓），变化时触发重新订阅。
+
+        持仓标的必须包含在内：持仓估值是这个站最需要准确且及时的数字，
+        而全市场 REST 轮询只有 5~20 秒粒度。
+        """
+        wanted = sorted({s.upper() for s in symbols if s})[: config.WS_MAX_STREAMS]
         if wanted != self.ws_symbols:
             self.ws_symbols = wanted
             self._resubscribe.set()
@@ -324,11 +278,9 @@ class TickerHub:
             "symbols": len(self.meta),
             "snapshot": len(self.snapshot),
             "premium": len(self.premium),
-            "marketWsConnected": self.market_ws_connected,
-            "marketAgeSec": round(now - self.last_market_at, 1) if self.last_market_at else None,
+            "premiumAgeSec": round(now - self.last_premium_at, 1) if self.last_premium_at else None,
             "restAgeSec": round(now - self.last_rest_ok, 1) if self.last_rest_ok else None,
             "restError": self.last_rest_error,
-            "restFallbackCount": self.rest_fallback_used,
             "wsConnected": self.ws_connected,
             "wsSymbols": len(self.ws_symbols),
             "bookAgeSec": round(now - self.last_book_at, 1) if self.last_book_at else None,

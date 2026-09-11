@@ -22,9 +22,12 @@ class OrderIn(BaseModel):
 
 
 def _sync_ws() -> list[str]:
-    """自选变更后让 hub 重新订阅盘口流。"""
+    """自选变更后重新汇总实时订阅（自选 ∪ 持仓）。"""
     symbols = db.list_watchlist()
-    hub.set_ws_symbols(symbols)
+    if hub.on_watchlist_change:
+        hub.on_watchlist_change(None)
+    else:
+        hub.set_ws_symbols(symbols)
     return symbols
 
 

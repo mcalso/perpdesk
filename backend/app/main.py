@@ -29,7 +29,15 @@ log = logging.getLogger("perpdesk")
 async def lifespan(app: FastAPI):
     db.connect()
     await hub.start()
-    hub.set_ws_symbols(db.list_watchlist())   # 用已存自选初始化盘口订阅
+    # 实时订阅 = 自选 ∪ 持仓。持仓估值最需要准确及时，不能只靠 REST 轮询。
+    def _refresh_ws_symbols(position_symbols: list[str] | None = None) -> None:
+        syms = set(db.list_watchlist())
+        syms |= set(position_symbols or [p["symbol"] for p in account_api.cache.positions])
+        hub.set_ws_symbols(sorted(syms))
+
+    hub.on_watchlist_change = _refresh_ws_symbols
+    account_api.cache.on_positions = _refresh_ws_symbols
+    _refresh_ws_symbols([])
     await account_api.cache.start()
     # 按成交额从高到低预热，热门标的先有图
     prewarm_task = asyncio.create_task(
