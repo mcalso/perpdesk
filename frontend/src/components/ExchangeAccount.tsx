@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { SortHeader } from './SortHeader'
 import { SymbolIcon } from './SymbolIcon'
+import { useSort } from '../lib/useSort'
 import { api, type AccountOverview, type AccountStatus } from '../lib/api'
 import { fmtPct, fmtPrice, fmtUsd, trendClass } from '../lib/format'
 
@@ -72,6 +74,21 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
     [data],
   )
 
+  // 派生两个排序维度：收益率、距强平距离。后者是风险视角下最该能排序的一列。
+  const rows = useMemo(
+    () => (data?.positions || []).map((p) => ({
+      ...p,
+      pnlPct: p.entryPrice
+        ? ((p.markPrice - p.entryPrice) / p.entryPrice) * (p.qty > 0 ? 1 : -1) * 100
+        : 0,
+      liqDistPct: p.liquidationPrice > 0 && p.markPrice > 0
+        ? (Math.abs(p.markPrice - p.liquidationPrice) / p.markPrice) * 100
+        : null,
+    })),
+    [data],
+  )
+  const { sorted, sortKey, sortDir, toggle } = useSort(rows, 'notional')
+
   return (
     <>
       <div className="stats">
@@ -129,22 +146,24 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
           <table>
             <thead>
               <tr>
-                <th>标的</th><th>方向</th><th className="right">持仓量</th>
-                <th className="right">开仓价</th><th className="right">标记价</th>
-                <th className="right">名义价值</th><th className="right">占比</th>
-                <th className="right">浮动盈亏</th>
-                <th className="right">收益率</th><th className="right">杠杆</th>
-                <th className="right">强平价</th>
+                <SortHeader label="标的" sortKey="symbol" current={sortKey} dir={sortDir} onSort={toggle} />
+                <SortHeader label="方向" sortKey="side" current={sortKey} dir={sortDir} onSort={toggle} />
+                <SortHeader label="持仓量" sortKey="qty" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="开仓价" sortKey="entryPrice" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="标记价" sortKey="markPrice" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="名义价值" sortKey="notional" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="占比" sortKey="weight" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="浮动盈亏" sortKey="unrealized" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="收益率" sortKey="pnlPct" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="杠杆" sortKey="leverage" current={sortKey} dir={sortDir} onSort={toggle} right />
+                <SortHeader label="距强平" sortKey="liqDistPct" current={sortKey} dir={sortDir}
+                            onSort={toggle} right title="标记价距强平价的百分比，升序排在最前的是最危险的仓位" />
+                <SortHeader label="强平价" sortKey="liquidationPrice" current={sortKey} dir={sortDir} onSort={toggle} right />
               </tr>
             </thead>
             <tbody>
-              {data.positions.map((p) => {
-                // 保证金口径的收益率：价格变动 × 杠杆
-                const pct = p.entryPrice
-                  ? ((p.markPrice - p.entryPrice) / p.entryPrice) * (p.qty > 0 ? 1 : -1) * 100
-                  : 0
-                const near = p.liquidationPrice > 0
-                  && Math.abs(p.markPrice - p.liquidationPrice) / p.markPrice < 0.15
+              {sorted.map((p) => {
+                const near = p.liqDistPct !== null && p.liqDistPct < 15
                 return (
                   <tr key={p.symbol} className="clickable"
                       onClick={() => nav(`/chart/${p.symbol}`)}>
@@ -171,10 +190,13 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                     <td className={`right mono ${trendClass(p.unrealized)}`}>
                       {fmtUsd(p.unrealized)}
                     </td>
-                    <td className={`right mono ${trendClass(pct)}`}>{fmtPct(pct)}</td>
+                    <td className={`right mono ${trendClass(p.pnlPct)}`}>{fmtPct(p.pnlPct)}</td>
                     <td className="right mono">{p.leverage}x</td>
                     <td className={`right mono ${near ? 'down' : 'muted'}`}
                         title={near ? '距强平价不足 15%' : ''}>
+                      {p.liqDistPct !== null ? `${p.liqDistPct.toFixed(1)}%` : '—'}
+                    </td>
+                    <td className={`right mono ${near ? 'down' : 'muted'}`}>
                       {p.liquidationPrice > 0 ? fmtPrice(p.liquidationPrice) : '—'}
                     </td>
                   </tr>

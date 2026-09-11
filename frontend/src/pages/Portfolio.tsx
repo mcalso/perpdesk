@@ -3,6 +3,9 @@ import {
   CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { ExchangeAccount } from '../components/ExchangeAccount'
+import { SortHeader } from '../components/SortHeader'
+import { SymbolIcon } from '../components/SymbolIcon'
+import { useSort } from '../lib/useSort'
 import { api, type PortfolioSummary, type Trade } from '../lib/api'
 import { fmtDate, fmtPct, fmtPrice, fmtTime, fmtUsd, trendClass } from '../lib/format'
 
@@ -88,10 +91,15 @@ export default function Portfolio() {
   // 本地流水靠手动/定时同步，可能落后于交易所；缺哪些标的要说清楚
   const [exchangeSymbols, setExchangeSymbols] = useState<string[]>([])
   useEffect(() => {
-    api.accountOverview()
-      .then((d) => setExchangeSymbols(d.positions.map((p) => p.symbol)))
-      .catch(() => { /* 未配置凭据时忽略 */ })
-  }, [sum])
+    // 独立定时器，不挂在 sum 上：否则本地数据每刷新一次就白白多打一次接口
+    const load = () =>
+      api.accountOverview()
+        .then((d) => setExchangeSymbols(d.positions.map((p) => p.symbol)))
+        .catch(() => { /* 未配置凭据时忽略 */ })
+    load()
+    const t = setInterval(load, 30000)
+    return () => clearInterval(t)
+  }, [])
 
   const missing = useMemo(() => {
     const local = new Set((sum?.positions || []).filter((p) => p.qty !== 0).map((p) => p.symbol))
@@ -101,6 +109,9 @@ export default function Portfolio() {
   const s = sum?.summary
   const open = useMemo(() => sum?.positions.filter((p) => p.qty !== 0) || [], [sum])
   const closed = useMemo(() => sum?.positions.filter((p) => p.qty === 0) || [], [sum])
+  const openSort = useSort(open, 'value')
+  const closedSort = useSort(closed, 'realized')
+  const tradeSort = useSort(trades, 'traded_at')
 
   return (
     <div className="page col">
@@ -173,16 +184,23 @@ export default function Portfolio() {
           <table>
             <thead>
               <tr>
-                <th>标的</th><th>方向</th><th className="right">持仓量</th>
-                <th className="right">开仓均价</th><th className="right">标记价</th>
-                <th className="right">名义价值</th><th className="right">浮动盈亏</th>
-                <th className="right">收益率</th><th className="right">已实现</th>
+                <SortHeader label="标的" sortKey="symbol" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} />
+                <SortHeader label="方向" sortKey="side" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} />
+                <SortHeader label="持仓量" sortKey="qty" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
+                <SortHeader label="开仓均价" sortKey="avgCost" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
+                <SortHeader label="标记价" sortKey="markPrice" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
+                <SortHeader label="名义价值" sortKey="value" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
+                <SortHeader label="浮动盈亏" sortKey="unrealized" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
+                <SortHeader label="收益率" sortKey="unrealizedPct" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
+                <SortHeader label="已实现" sortKey="realized" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
               </tr>
             </thead>
             <tbody>
-              {open.map((p) => (
+              {openSort.sorted.map((p) => (
                 <tr key={p.symbol}>
-                  <td className="sym">{p.symbol}</td>
+                  <td className="sym">
+                    <div className="sym-cell"><SymbolIcon symbol={p.symbol} />{p.symbol}</div>
+                  </td>
                   <td><span className={`tag ${p.side.toLowerCase()}`}>{p.side === 'LONG' ? '多' : '空'}</span></td>
                   <td className="right mono">{p.qty}</td>
                   <td className="right mono">{fmtPrice(p.avgCost)}</td>
@@ -205,13 +223,20 @@ export default function Portfolio() {
           <div className="panel-head">已平仓标的<span className="muted" style={{ fontWeight: 400 }}>{closed.length}</span></div>
           <table>
             <thead>
-              <tr><th>标的</th><th className="right">已实现盈亏</th><th className="right">手续费</th>
-                  <th className="right">成交笔数</th><th className="right">最后交易</th></tr>
+              <tr>
+                <SortHeader label="标的" sortKey="symbol" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} />
+                <SortHeader label="已实现盈亏" sortKey="realized" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
+                <SortHeader label="手续费" sortKey="fee" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
+                <SortHeader label="成交笔数" sortKey="tradeCount" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
+                <SortHeader label="最后交易" sortKey="lastAt" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
+              </tr>
             </thead>
             <tbody>
-              {closed.map((p) => (
+              {closedSort.sorted.map((p) => (
                 <tr key={p.symbol}>
-                  <td className="sym">{p.symbol}</td>
+                  <td className="sym">
+                    <div className="sym-cell"><SymbolIcon symbol={p.symbol} size={18} />{p.symbol}</div>
+                  </td>
                   <td className={`right mono ${trendClass(p.realized)}`}>{fmtUsd(p.realized)}</td>
                   <td className="right mono">{fmtUsd(p.fee)}</td>
                   <td className="right mono">{p.tradeCount}</td>
@@ -305,15 +330,24 @@ export default function Portfolio() {
           <div className="table-scroll" style={{ maxHeight: 360 }}>
             <table>
               <thead>
-                <tr><th>时间</th><th>标的</th><th>方向</th><th className="right">数量</th>
-                    <th className="right">价格</th><th className="right">手续费</th>
-                    <th>备注</th><th /></tr>
+                <tr>
+                  <SortHeader label="时间" sortKey="traded_at" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} />
+                  <SortHeader label="标的" sortKey="symbol" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} />
+                  <SortHeader label="方向" sortKey="side" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} />
+                  <SortHeader label="数量" sortKey="qty" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} right />
+                  <SortHeader label="价格" sortKey="price" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} right />
+                  <SortHeader label="手续费" sortKey="fee" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} right />
+                  <SortHeader label="备注" sortKey="note" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} />
+                  <th />
+                </tr>
               </thead>
               <tbody>
-                {[...trades].reverse().map((t) => (
+                {tradeSort.sorted.map((t) => (
                   <tr key={t.id}>
                     <td className="muted">{fmtTime(t.traded_at)}</td>
-                    <td className="sym">{t.symbol}</td>
+                    <td className="sym">
+                      <div className="sym-cell"><SymbolIcon symbol={t.symbol} size={18} />{t.symbol}</div>
+                    </td>
                     <td className={t.side === 'BUY' ? 'up' : 'down'}>
                       {t.side === 'BUY' ? '买入' : '卖出'}
                     </td>

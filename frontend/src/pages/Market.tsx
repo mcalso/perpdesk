@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { SortHeader } from '../components/SortHeader'
 import { SymbolIcon } from '../components/SymbolIcon'
 import { api, type Ticker } from '../lib/api'
+import { useSort } from '../lib/useSort'
 import { liveFeed, type LiveRow } from '../lib/ws'
 import { fmtCompact, fmtPct, fmtPrice, trendClass } from '../lib/format'
-
-type SortKey = 'chgPct' | 'quoteVolume' | 'fundingRate' | 'symbol' | 'last'
 
 // Binance 现在既有加密永续，也有股票/指数代币化永续(TRADIFI_PERPETUAL)，分开看更清楚。
 // 类别列表从行情数据里动态取，Binance 新增品类时不用改代码。
@@ -15,21 +15,13 @@ const CLASS_LABEL: Record<string, string> = {
 }
 const classLabel = (v: string) => CLASS_LABEL[v] || v
 
-const COLUMNS: { key: SortKey; label: string; right?: boolean }[] = [
-  { key: 'symbol', label: '标的' },
-  { key: 'last', label: '最新价', right: true },
-  { key: 'chgPct', label: '24h 涨跌', right: true },
-  { key: 'quoteVolume', label: '24h 成交额', right: true },
-  { key: 'fundingRate', label: '资金费率', right: true },
-]
+const PAGE_SIZE = 100
 
 export default function Market() {
   const nav = useNavigate()
   const [rows, setRows] = useState<Ticker[]>([])
   const [live, setLive] = useState<Map<string, LiveRow>>(new Map())
   const [watch, setWatch] = useState<Set<string>>(new Set())
-  const [sort, setSort] = useState<SortKey>('quoteVolume')
-  const [desc, setDesc] = useState(true)
   const [search, setSearch] = useState('')
   const [cls, setCls] = useState('all')
   const [err, setErr] = useState('')
@@ -66,22 +58,27 @@ export default function Market() {
   }
 
   // WS 只覆盖价格类字段，成交额等仍以 REST 快照为准
-  const merged = useMemo(() => {
+  const filtered = useMemo(() => {
     const out = rows.map((r) => {
       const l = live.get(r.symbol)
       return l ? { ...r, last: l.last, chgPct: l.chgPct, markPrice: l.markPrice } : r
     })
     const needle = search.trim().toUpperCase()
-    let filtered = needle ? out.filter((r) => r.symbol.includes(needle)) : out
-    if (cls !== 'all') filtered = filtered.filter((r) => r.assetClass === cls)
-    const dir = desc ? -1 : 1
-    return [...filtered].sort((a, b) => {
-      const av = a[sort], bv = b[sort]
-      if (typeof av === 'string' || typeof bv === 'string')
-        return String(av).localeCompare(String(bv)) * dir
-      return ((av as number) - (bv as number)) * dir
-    })
-  }, [rows, live, sort, desc, search, cls])
+    let hit = needle ? out.filter((r) => r.symbol.includes(needle)) : out
+    if (cls !== 'all') hit = hit.filter((r) => r.assetClass === cls)
+    return hit
+  }, [rows, live, search, cls])
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, 'quoteVolume')
+
+  // 分页而不是截断：718 个标的全都要能翻到，同时把每秒重渲染的 DOM 控制在一页内
+  const [page, setPage] = useState(0)
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  useEffect(() => { setPage(0) }, [search, cls, sortKey, sortDir])
+  const pageRows = useMemo(
+    () => sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [sorted, page],
+  )
 
   // 按标的数量排序，常用的排前面
   const classes = useMemo(() => {
@@ -98,11 +95,6 @@ export default function Market() {
     const sorted = [...scope].sort((a, b) => b.chgPct - a.chgPct)
     return { n: scope.length, up, down, vol, top: sorted[0], bottom: sorted[sorted.length - 1] }
   }, [rows, cls])
-
-  const clickSort = (k: SortKey) => {
-    if (k === sort) setDesc(!desc)
-    else { setSort(k); setDesc(true) }
-  }
 
   return (
     <div className="page col">
@@ -140,7 +132,7 @@ export default function Market() {
         <div className="panel-head">
           全市场行情
           <span className="muted" style={{ fontWeight: 400 }}>
-            {merged.length} 个标的{search ? '（已过滤）' : ''}
+            {sorted.length} 个标的{search || cls !== 'all' ? '（已过滤）' : ''}
           </span>
           <div className="seg">
             <button className={cls === 'all' ? 'on' : ''} onClick={() => setCls('all')}>
@@ -169,20 +161,16 @@ export default function Market() {
               <thead>
                 <tr>
                   <th style={{ width: 36 }} />
-                  {COLUMNS.map((c) => (
-                    <th
-                      key={c.key}
-                      className={`sortable${c.right ? ' right' : ''}`}
-                      onClick={() => clickSort(c.key)}
-                    >
-                      {c.label}{sort === c.key ? (desc ? ' ↓' : ' ↑') : ''}
-                    </th>
-                  ))}
+                  <SortHeader label="标的" sortKey="symbol" current={sortKey} dir={sortDir} onSort={toggle} />
+                  <SortHeader label="最新价" sortKey="last" current={sortKey} dir={sortDir} onSort={toggle} right />
+                  <SortHeader label="24h 涨跌" sortKey="chgPct" current={sortKey} dir={sortDir} onSort={toggle} right />
+                  <SortHeader label="24h 成交额" sortKey="quoteVolume" current={sortKey} dir={sortDir} onSort={toggle} right />
+                  <SortHeader label="资金费率" sortKey="fundingRate" current={sortKey} dir={sortDir} onSort={toggle} right />
                   <th className="right">状态</th>
                 </tr>
               </thead>
               <tbody>
-                {merged.slice(0, 300).map((r) => (
+                {pageRows.map((r) => (
                   <tr key={r.symbol} className="clickable" onClick={() => nav(`/chart/${r.symbol}`)}>
                     <td>
                       <button
@@ -217,9 +205,21 @@ export default function Market() {
                 ))}
               </tbody>
             </table>
-            {merged.length > 300 && (
-              <div className="empty">仅显示前 300 条，用搜索框缩小范围</div>
-            )}
+
+          </div>
+        )}
+        {pageCount > 1 && (
+          <div className="pager">
+            <button className="sm" disabled={page === 0} onClick={() => setPage(0)}>« 首页</button>
+            <button className="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</button>
+            <span className="muted">
+              第 {page + 1} / {pageCount} 页 · 第 {page * PAGE_SIZE + 1}–
+              {Math.min((page + 1) * PAGE_SIZE, sorted.length)} 条
+            </span>
+            <button className="sm" disabled={page >= pageCount - 1}
+                    onClick={() => setPage(page + 1)}>下一页</button>
+            <button className="sm" disabled={page >= pageCount - 1}
+                    onClick={() => setPage(pageCount - 1)}>末页 »</button>
           </div>
         )}
       </div>

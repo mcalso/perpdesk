@@ -97,6 +97,8 @@ th {
 }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--text); }
+th.sortable.sorted { color: var(--text); }
+.sort-arrow { display: inline-block; width: 10px; color: var(--accent); }
 td {
   padding: 7px 12px; border-bottom: 1px solid rgba(42, 46, 57, .5);
   font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -156,6 +158,10 @@ button.sm { padding: 3px 8px; font-size: 11px; }
 .msg.ok { background: rgba(38, 166, 154, .12); color: var(--up); }
 .msg.info { background: rgba(41, 98, 255, .12); color: #5b8dff; }
 .empty { padding: 40px; text-align: center; color: var(--text-dim); }
+.pager {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px; border-top: 1px solid var(--border); font-size: 12px;
+}
 
 /* ---------- 图表 ---------- */
 .tv-chart { width: 100%; }
