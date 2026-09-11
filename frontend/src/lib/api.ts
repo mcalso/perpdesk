@@ -26,6 +26,7 @@ export interface Position {
   symbol: string; qty: number; avgCost: number; markPrice: number
   value: number; costBasis: number
   unrealized: number; unrealizedPct: number; realized: number; fee: number
+  funding: number
   tradeCount: number; side: 'LONG' | 'SHORT' | 'FLAT'; lastAt: number
 }
 
@@ -64,6 +65,8 @@ export interface PortfolioSummary {
     totalRealized: number; totalUnrealized: number; totalPnl: number
     totalFee: number; grossExposure: number; netExposure: number
     openCount: number; symbolCount: number
+    totalFunding: number; exchangeRealized: number; exchangeCommission: number
+    hasIncome: boolean
   }
   allocation: { symbol: string; value: number; weight: number; side: string }[]
 }

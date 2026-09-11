@@ -27,6 +27,21 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_symbol_time ON trades (symbol, traded_at);
+
+-- 交易所资金流水：资金费、已实现盈亏、手续费等。
+-- 资金费不体现在成交记录里，但对长期持仓（尤其高杠杆）是实打实的损益，
+-- 必须单独同步，否则盈亏统计会系统性偏离交易所口径。
+CREATE TABLE IF NOT EXISTS income (
+    tran_id  TEXT PRIMARY KEY,
+    symbol   TEXT NOT NULL DEFAULT '',
+    type     TEXT NOT NULL,
+    amount   REAL NOT NULL,
+    asset    TEXT NOT NULL DEFAULT '',
+    ts       INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_income_type_time ON income (type, ts);
+CREATE INDEX IF NOT EXISTS idx_income_symbol ON income (symbol);
 """
 
 
@@ -134,6 +149,49 @@ def add_trades_bulk(rows: list[tuple]) -> int:
     )
     conn.commit()
     return cur.rowcount
+
+
+# ---------- income ----------
+
+def upsert_income(rows: list[tuple]) -> int:
+    """rows: (tran_id, symbol, type, amount, asset, ts)。按 tran_id 幂等。"""
+    conn = connect()
+    cur = conn.executemany(
+        """INSERT OR IGNORE INTO income (tran_id, symbol, type, amount, asset, ts)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        rows,
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def income_totals() -> dict[str, dict[str, float]]:
+    """按 symbol 汇总各科目金额。"""
+    out: dict[str, dict[str, float]] = {}
+    for r in connect().execute(
+        "SELECT symbol, type, SUM(amount) AS total FROM income GROUP BY symbol, type"
+    ):
+        out.setdefault(r["symbol"], {})[r["type"]] = r["total"]
+    return out
+
+
+def income_by_type() -> dict[str, float]:
+    return {
+        r["type"]: r["total"]
+        for r in connect().execute(
+            "SELECT type, SUM(amount) AS total FROM income GROUP BY type"
+        )
+    }
+
+
+def income_symbols() -> list[str]:
+    """所有出现过流水的标的——用它反查有交易历史的 symbol，含已平仓的。"""
+    return [
+        r["symbol"]
+        for r in connect().execute(
+            "SELECT DISTINCT symbol FROM income WHERE symbol != '' ORDER BY symbol"
+        )
+    ]
 
 
 def delete_trade(trade_id: int) -> bool:

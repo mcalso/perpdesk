@@ -112,6 +112,22 @@ def _parse_ts(s: str) -> int:
 async def summary() -> dict:
     trades = db.list_trades()
     result = pnl.build_summary(trades, _marks())
+
+    # 资金费单列：它不出现在成交记录里，但对长期/高杠杆持仓是实打实的损益，
+    # 漏掉会让统计系统性偏乐观。已实现盈亏仍只算平仓部分，两者不混。
+    per_symbol = db.income_totals()
+    totals = db.income_by_type()
+    for p in result["positions"]:
+        p["funding"] = (per_symbol.get(p["symbol"]) or {}).get("FUNDING_FEE", 0.0)
+
+    funding = totals.get("FUNDING_FEE", 0.0)
+    s = result["summary"]
+    s["totalFunding"] = funding
+    s["totalPnl"] = s["totalRealized"] + s["totalUnrealized"] + funding
+    s["exchangeRealized"] = totals.get("REALIZED_PNL", 0.0)
+    s["exchangeCommission"] = totals.get("COMMISSION", 0.0)
+    s["hasIncome"] = bool(totals)
+
     result["allocation"] = _allocation(result["positions"])
     return result
 

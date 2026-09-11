@@ -1,4 +1,5 @@
 """账户只读接口 + 把交易所成交同步进本地流水。"""
+import asyncio
 import time
 
 from fastapi import APIRouter, HTTPException, Query
@@ -44,38 +45,93 @@ async def overview() -> dict:
 
 @router.post("/sync-trades")
 async def sync_trades(
-    symbols: str = Query("", description="逗号分隔；留空则同步当前持仓的标的"),
-    days: int = Query(30, ge=1, le=365),
+    symbols: str = Query("", description="逗号分隔；留空则自动覆盖所有有交易记录的标的"),
+    days: int = Query(90, ge=1, le=365),
 ) -> dict:
-    """把交易所成交明细拉进本地 trades 表，按 (symbol, tradeId) 去重。"""
-    _guard()
-    start_ms = int((time.time() - days * 86400) * 1000)
+    """把交易所的成交明细与资金流水同步到本地。
 
-    wanted = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    if not wanted:
+    两件事都做，缺一不可：
+
+    * **成交明细** —— 决定持仓与已实现盈亏。注意不能只同步「当前持仓」的标的，
+      否则已平仓标的的盈亏（往往正是亏损的那些）会全部丢失，统计出来的
+      总盈亏会严重偏向乐观。这里用资金流水反查出所有交易过的标的。
+    * **资金流水** —— 资金费不出现在成交记录里，但对长期/高杠杆持仓是实打实的
+      损益项，必须单独计。
+
+    为控制权重：userTrades 每标的每 7 天一次请求（权重 5），90 天 × 30 标的可达
+    2000+ 权重，逼近 2400/分钟 的上限。因此用资金流水的时间范围把每个已平仓
+    标的的查询窗口收窄，并对请求做节流。
+    """
+    _guard()
+    now_ms = int(time.time() * 1000)
+    start_ms = now_ms - days * 86400 * 1000
+
+    # 1) 资金流水（顺带得到"哪些标的有过交易"）
+    try:
+        inc = await account.income_range(start_ms)
+    except Exception as exc:
+        raise HTTPException(502, f"income: {exc}") from exc
+    income_new = db.upsert_income([
+        (r["tranId"], r["symbol"], r["type"], r["amount"], r["asset"], r["t"])
+        for r in inc
+    ]) if inc else 0
+
+    # 2) 待同步标的与各自的时间窗口
+    windows: dict[str, tuple[int, int]] = {}
+    if symbols:
+        for sym in (x.strip().upper() for x in symbols.split(",") if x.strip()):
+            windows[sym] = (start_ms, now_ms)
+    else:
+        for r in inc:
+            sym = r["symbol"]
+            if not sym:
+                continue
+            lo, hi = windows.get(sym, (r["t"], r["t"]))
+            windows[sym] = (min(lo, r["t"]), max(hi, r["t"]))
+        # 已平仓标的：开仓往往早于第一笔盈亏结算，向前多留 7 天
+        pad = 7 * 86400 * 1000
+        windows = {s: (max(start_ms, lo - pad), min(now_ms, hi + pad))
+                   for s, (lo, hi) in windows.items()}
+        # 当前持仓可能尚无任何结算记录，用完整区间兜底
         try:
-            wanted = [p["symbol"] for p in await account.positions()]
+            for p in await account.positions():
+                windows[p["symbol"]] = (start_ms, now_ms)
         except Exception as exc:
             raise HTTPException(502, str(exc)) from exc
-    if not wanted:
-        return {"inserted": 0, "skipped": 0, "symbols": [], "note": "当前没有持仓，请显式指定 symbols"}
 
+    if not windows:
+        return {"inserted": 0, "skipped": 0, "incomeInserted": income_new,
+                "symbols": [], "note": "这段时间内没有任何交易记录"}
+
+    # 3) 成交明细（按 tradeId 去重，note 里存 binance:<tradeId>）
     existing = {
-        (t["symbol"], t["note"]) for t in db.list_trades() if t["note"].startswith("binance:")
+        t["note"] for t in db.list_trades() if t["note"].startswith("binance:")
     }
-    rows, skipped = [], 0
-    for sym in wanted:
+    rows, skipped, failed = [], 0, []
+    for i, (sym, (lo, hi)) in enumerate(sorted(windows.items())):
         try:
-            fills = await account.user_trades_range(sym, start_ms)
+            fills = await account.user_trades_range(sym, lo, hi)
         except Exception as exc:
-            raise HTTPException(502, f"{sym}: {exc}") from exc
+            failed.append({"symbol": sym, "error": str(exc)[:120]})
+            continue
         for f in fills:
             tag = f"binance:{f['tradeId']}"
-            if (f["symbol"], tag) in existing:
+            if tag in existing:
                 skipped += 1
                 continue
+            existing.add(tag)
             rows.append((f["symbol"], f["side"], f["qty"], f["price"], f["fee"],
                          f["traded_at"], tag))
+        if i % 8 == 7:                 # 节流，避免瞬时打满权重
+            await asyncio.sleep(1.0)
 
     inserted = db.add_trades_bulk(rows) if rows else 0
-    return {"inserted": inserted, "skipped": skipped, "symbols": wanted, "days": days}
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "incomeInserted": income_new,
+        "symbols": sorted(windows),
+        "symbolCount": len(windows),
+        "days": days,
+        "failed": failed[:10],
+    }

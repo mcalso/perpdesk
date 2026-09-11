@@ -123,6 +123,13 @@ export default function Portfolio() {
           按记账流水推算，用于历史盈亏；当前持仓以上方交易所数据为准
         </span>
       </div>
+      {s?.hasIncome && Math.abs((s.totalRealized + s.totalFunding) - (s.exchangeRealized + s.exchangeCommission + s.totalFunding)) > 1 && (
+        <div className="msg info">
+          本地流水算出的已实现盈亏 {fmtUsd(s.totalRealized)}，交易所流水口径为{' '}
+          {fmtUsd(s.exchangeRealized + s.exchangeCommission)}（含手续费）。
+          差异通常意味着还有成交没同步进来——点上方「同步近 30 天成交」并适当加大天数。
+        </div>
+      )}
       {missing.length > 0 && (
         <div className="msg info">
           交易所有 {missing.length} 个标的（{missing.join('、')}）在本地流水里没有记录，
@@ -132,11 +139,13 @@ export default function Portfolio() {
 
       <div className="stats">
         <StatCard label="总盈亏" value={fmtUsd(s?.totalPnl)} cls={trendClass(s?.totalPnl)}
-                  sub="已实现 + 浮动" />
+                  sub="已实现 + 浮动 + 资金费" />
         <StatCard label="已实现" value={fmtUsd(s?.totalRealized)} cls={trendClass(s?.totalRealized)}
                   sub={`含手续费 ${fmtUsd(s?.totalFee)}`} />
         <StatCard label="浮动盈亏" value={fmtUsd(s?.totalUnrealized)} cls={trendClass(s?.totalUnrealized)}
                   sub="按当前标记价" />
+        <StatCard label="资金费" value={fmtUsd(s?.totalFunding)} cls={trendClass(s?.totalFunding)}
+                  sub={s?.hasIncome ? '来自交易所流水' : '点同步后可见'} />
         <StatCard label="总敞口" value={fmtUsd(s?.grossExposure)}
                   sub={`净 ${fmtUsd(s?.netExposure)}`} />
         <StatCard label="持仓数" value={String(s?.openCount ?? 0)}
@@ -227,6 +236,7 @@ export default function Portfolio() {
                 <SortHeader label="标的" sortKey="symbol" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} />
                 <SortHeader label="已实现盈亏" sortKey="realized" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
                 <SortHeader label="手续费" sortKey="fee" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
+                <SortHeader label="资金费" sortKey="funding" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
                 <SortHeader label="成交笔数" sortKey="tradeCount" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
                 <SortHeader label="最后交易" sortKey="lastAt" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} right />
               </tr>
@@ -239,6 +249,7 @@ export default function Portfolio() {
                   </td>
                   <td className={`right mono ${trendClass(p.realized)}`}>{fmtUsd(p.realized)}</td>
                   <td className="right mono">{fmtUsd(p.fee)}</td>
+                  <td className={`right mono ${trendClass(p.funding)}`}>{fmtUsd(p.funding)}</td>
                   <td className="right mono">{p.tradeCount}</td>
                   <td className="right muted">{fmtTime(p.lastAt)}</td>
                 </tr>

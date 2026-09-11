@@ -162,6 +162,32 @@ async def user_trades(symbol: str, start_ms: int | None = None,
     ]
 
 
+async def income_range(start_ms: int, end_ms: int | None = None,
+                       income_type: str | None = None) -> list[dict]:
+    """拉取一段时间的资金流水，自动分页并按 tranId 去重。
+
+    与 userTrades 一样受时间窗口与单次 1000 条限制，用游标往前滚。
+    """
+    end_ms = end_ms or int(time.time() * 1000)
+    seen: dict[Any, dict] = {}
+    cursor = start_ms
+    guard = 0
+    while cursor < end_ms and guard < 200:
+        guard += 1
+        rows = await income(income_type, cursor, limit=1000)
+        if not rows:
+            break
+        for r in rows:
+            seen[r["tranId"]] = r
+        if len(rows) < 1000:
+            break
+        nxt = max(r["t"] for r in rows) + 1
+        if nxt <= cursor:          # 时间戳重复，防死循环
+            break
+        cursor = nxt
+    return sorted(seen.values(), key=lambda r: r["t"])
+
+
 async def income(income_type: str | None = None, start_ms: int | None = None,
                  limit: int = 1000) -> list[dict]:
     """资金流水：REALIZED_PNL / FUNDING_FEE / COMMISSION 等。"""
@@ -178,6 +204,7 @@ async def income(income_type: str | None = None, start_ms: int | None = None,
             "amount": float(r.get("income") or 0),
             "asset": r.get("asset", ""),
             "t": int(r.get("time") or 0),
+            "tranId": str(r.get("tranId") or f"{r.get('symbol','')}-{r.get('time')}-{r.get('incomeType')}"),
         }
         for r in rows
     ]
