@@ -1,0 +1,29 @@
+# 凭据：绝不入库
+.env
+.env.local
+backend/.env
+*.key
+*.pem
+
+# 运行时数据：本地交易流水与账户信息，属于隐私
+# 注意用 data/* 而不是 data/：整目录被忽略时 Git 不会递归进去，否定规则会失效
+data/*
+!data/.gitkeep
+
+# 进程 PID 与日志
+.run/
+
+# 依赖与构建产物
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,92 @@
+import { useEffect, useRef, useState } from 'react'
+
+declare global {
+  interface Window { TradingView?: { widget: new (cfg: Record<string, unknown>) => unknown } }
+}
+
+const TV_SCRIPT = 'https://s3.tradingview.com/tv.js'
+let scriptPromise: Promise<void> | null = null
+
+/** tv.js 只加载一次，多次切换标的复用同一份脚本 */
+function loadTradingView(): Promise<void> {
+  if (window.TradingView) return Promise.resolve()
+  if (scriptPromise) return scriptPromise
+  scriptPromise = new Promise((resolve, reject) => {
+    const el = document.createElement('script')
+    el.src = TV_SCRIPT
+    el.async = true
+    el.onload = () => resolve()
+    el.onerror = () => { scriptPromise = null; reject(new Error('无法加载 TradingView 脚本')) }
+    document.head.appendChild(el)
+  })
+  return scriptPromise
+}
+
+interface Props {
+  /** Binance 合约标的，如 BTCUSDT */
+  symbol: string
+  interval?: string
+  height?: number
+}
+
+/**
+ * TradingView 官方免费 Advanced Chart。
+ *
+ * 图表由浏览器直连 TradingView 渲染，不经过本项目后端 —— 所以它不受后端到
+ * Binance 那条链路的限速影响，指标与画线工具也都是 TradingView 原生的。
+ * 代价是喂不进自定义数据；真要自研指标得换成 klinecharts，见 README。
+ */
+export function TradingViewChart({ symbol, interval = '60', height = 620 }: Props) {
+  const box = useRef<HTMLDivElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const containerId = useRef(`tv_${Math.random().toString(36).slice(2)}`)
+
+  useEffect(() => {
+    let cancelled = false
+    setError(null)
+
+    loadTradingView()
+      .then(() => {
+        if (cancelled || !box.current || !window.TradingView) return
+        box.current.innerHTML = ''
+        const host = document.createElement('div')
+        host.id = containerId.current
+        host.style.height = '100%'
+        box.current.appendChild(host)
+
+        new window.TradingView.widget({
+          container_id: containerId.current,
+          // .P 后缀是 TradingView 对永续合约的标记
+          symbol: `BINANCE:${symbol}.P`,
+          interval,
+          timezone: 'Asia/Shanghai',
+          theme: 'dark',
+          style: '1',
+          locale: 'zh_CN',
+          autosize: true,
+          withdateranges: true,
+          allow_symbol_change: true,
+          details: true,
+          hide_side_toolbar: false,
+          studies: ['MASimple@tv-basicstudies', 'Volume@tv-basicstudies'],
+        })
+      })
+      .catch((e: Error) => { if (!cancelled) setError(e.message) })
+
+    return () => { cancelled = true }
+  }, [symbol, interval])
+
+  if (error) {
+    return (
+      <div className="tv-fallback" style={{ height }}>
+        <div className="tv-fallback-title">图表加载失败</div>
+        <p>{error}</p>
+        <p className="muted">
+          浏览器需要能访问 <code>s3.tradingview.com</code>。
+          若长期不通，可改用自建图表方案（见 README 的「图表方案」一节）。
+        </p>
+      </div>
+    )
+  }
+  return <div className="tv-chart" ref={box} style={{ height }} />
+}
