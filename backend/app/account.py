@@ -174,31 +174,27 @@ async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict
 
 async def income_range(start_ms: int, end_ms: int | None = None,
                        income_type: str | None = None) -> list[dict]:
-    """拉取一段时间的资金流水。
+    """拉取一段时间的资金流水，用 page 翻页。
 
-    **按固定时间窗口 + 页码分页，不能用时间游标。** 与 userTrades 同理，
-    `max(time)+1` 会跳过同一毫秒内的其他记录 —— 实测某标的 612 笔成交对应的
-    REALIZED_PNL 被整段漏掉，导致该标的的盈亏归属完全错位。
-    income 接口没有 fromId，但支持 page，于是改成：7 天一段窗口，
-    段内用 page 翻页直到取空。
+    两个踩过的坑：
+
+    * **不能用时间游标分页**（`max(time)+1`）——同一毫秒内的其他记录会被整段
+      跳过，实测某标的 612 笔成交对应的 REALIZED_PNL 一条都没同步到。
+    * **income 没有 userTrades 那种 7 天跨度限制**，不要照搬着切窗口：
+      365 天切成 52 段、每段权重 30，一次同步就打掉 1500+ 权重直接 429。
+      整段时间一次给，靠 page 翻页即可。
     """
     end_ms = end_ms or int(time.time() * 1000)
-    window = 7 * 86400 * 1000
     seen: dict[Any, dict] = {}
-    cursor = start_ms
-    while cursor < end_ms:
-        chunk_end = min(cursor + window, end_ms)
-        page = 1
-        while page <= 100:                   # 单窗口 10 万条封顶
-            rows = await income(income_type, cursor, chunk_end, page=page, limit=1000)
-            if not rows:
-                break
-            for r in rows:
-                seen[r["tranId"]] = r
-            if len(rows) < 1000:
-                break
-            page += 1
-        cursor = chunk_end + 1
+    for page in range(1, 201):               # 20 万条封顶
+        rows = await income(income_type, start_ms, end_ms, page=page, limit=1000)
+        if not rows:
+            break
+        for r in rows:
+            seen[r["tranId"]] = r
+        if len(rows) < 1000:
+            break
+        await asyncio.sleep(0.25)            # 轻度节流，别把权重打满
     return sorted(seen.values(), key=lambda r: r["t"])
 
 
@@ -223,7 +219,9 @@ async def income(income_type: str | None = None, start_ms: int | None = None,
             "amount": float(r.get("income") or 0),
             "asset": r.get("asset", ""),
             "t": int(r.get("time") or 0),
-            "tranId": str(r.get("tranId") or f"{r.get('symbol','')}-{r.get('time')}-{r.get('incomeType')}"),
+            # tranId 在同一笔交易的不同科目间可能重复，拼上科目与标的才唯一，
+            # 否则 INSERT OR IGNORE 会把同一笔的手续费或盈亏吞掉一条
+            "tranId": f"{r.get('tranId') or r.get('time')}-{r.get('incomeType','')}-{r.get('symbol','')}",
         }
         for r in rows
     ]
