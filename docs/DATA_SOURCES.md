@@ -9,10 +9,10 @@
 
 | 通道 | 状态 | 项目里的用法 |
 |---|---|---|
-| WS `stream.binancefuture.com` 全市场流 | ✅ 正常 | **主数据源**：`!ticker@arr` + `!markPrice@arr@1s`，1 秒一推 |
-| WS `fstream.binance.com` 全市场流 | ❌ **静默，勿用** | 见下节 |
-| WS `bookTicker`（两个端点都行） | ✅ 正常 | 自选标的实时买一/卖一 |
-| REST `fapi.binance.com` | ✅ 正常，注意权重 | 首屏一次 + WS 断流兜底 + exchangeInfo |
+| REST `fapi.binance.com` | ✅ 可靠 | **行情权威源**：premiumIndex 5s、ticker/24hr 20s |
+| WS `bookTicker` 单标的/合并流 | ✅ 可靠 | 自选 ∪ 持仓的实时买一/卖一 |
+| WS `fstream.binance.com` 全市场数组流 | ❌ 一帧不推 | 不可用 |
+| WS `stream.binancefuture.com` 全市场数组流 | ❌ **推错数据，更危险** | 不可用 |
 | TradingView widget | ✅ | 图表，浏览器直连，不经后端 |
 
 ## 1. fstream.binance.com 的数组流是坏的（重要）
@@ -28,14 +28,14 @@ btcusdt@bookTicker   OK        !bookTicker        OK
 不是握手失败 —— TCP + TLS 正常，用 `{"method":"SUBSCRIBE",...}` 订阅甚至会收到
 **成功应答**（`{"result":null,"id":1}`），然后就没有然后了。
 
-**换成官方的另一个基础端点 `wss://stream.binancefuture.com`，同样的流全部正常：**
+换成官方的另一个基础端点 `wss://stream.binancefuture.com`，这些流**看起来**恢复了：
 
 ```
 !ticker@arr          OK 1.05s  108,994B  358 条
-!miniTicker@arr      OK 0.78s   77,173B  427 条
 !markPrice@arr@1s    OK 0.92s    6,859B   39 条
-btcusdt@aggTrade     OK 0.41s      167B
 ```
+
+**但它推的数据不可信，千万别用。** 见下一节。
 
 排查过程中排除的因素（都不是原因）：
 
@@ -51,12 +51,31 @@ payload 里出现了新增的 `st`（1=UM，2=CM）和 `ps` 字段。
 > **教训**：这个现象一度被误判为"国内网络受限"，项目为此把数据层改成 REST 30 秒轮询，
 > 实时性白白降了 30 倍。遇到"连得上但无数据"，**先换官方备用端点试一次**再怀疑网络。
 
-## 2. `st` 字段必须过滤
+## 2. stream.binancefuture.com 推的是错数据（比不推更危险）
+
+拿 REST 的 `premiumIndex` 逐个交叉校验，发现该端点的全市场流存在两类严重问题：
+
+- **价格错误**：`KORUUSDT` 标记价报 `498.27`，REST 真实值 `22.91`，偏差 2079%。
+  且该条记录的标记价/指数价/预估结算价三个字段**全等于同一个值**、资金费率为 0 ——
+  典型的未初始化数据。
+- **静默缺失**：多个 24h 成交额上亿的活跃标的（`MARSCOINUSDT`、`SKHYUSDT`、
+  `HK0625USDT`）在 25 秒内一条都不推，快照永远停在启动时的值。
+
+单标的 `markPrice@1s` 流同样有这两个问题（10 个标的里 1 个价格错、3 个不推）。
+
+> **教训**：发现一个端点不可用后，找到"能推数据"的替代端点就直接切过去，
+> 而没有拿另一个来源交叉校验数值 —— 结果让持仓估值建立在错误的标记价上。
+> **数据源验收的第一项是正确性，不是连通性。** 任何新数据源接入前，
+> 都应当与一个已知可靠的来源做全量比对。
+
+因此本项目的行情一律以 REST 为权威源，WS 只用实测可靠的 `bookTicker`。
+
+## 3. `st` 字段必须过滤
 
 CM 合并后，同一条流里既有 U 本位也有币本位合约。不按 `st == 1` 过滤，
 币本位合约会混进 USDT 列表。
 
-## 3. REST 权重是 IP 维度的
+## 4. REST 权重是 IP 维度的
 
 `x-mbx-used-weight-1m` 会被**同一出口 IP 上的所有程序**共同消耗。在一台还跑着其他
 采集脚本的机器上，观测到权重在 272→930 之间攀升，418 在远未到 2400 上限时就出现，
@@ -69,7 +88,7 @@ CM 合并后，同一条流里既有 U 本位也有币本位合约。不按 `st 
 
 改用 WS 主数据源后，REST 正常情况下只在启动时调用一次。
 
-## 4. API key 的能力边界
+## 5. API key 的能力边界
 
 | 用途 | 能否 |
 |---|---|
@@ -80,22 +99,30 @@ CM 合并后，同一条流里既有 U 本位也有币本位合约。不按 `st 
 项目只实现 GET 查询，`backend/app/account.py` 刻意不提供任何下单接口，
 配**只读权限**的 key 即可。
 
-## 5. userTrades 的 7 天窗口
+## 6. 成交与流水的分页：绝不能用时间游标
 
-`/fapi/v1/userTrades` 的 `startTime`/`endTime` 跨度不能超过 7 天，两者都不传则只返回
-最近 7 天。直接传 30 天前的 `startTime` **不会报错**，但只会拿到很少的数据——
-很容易误以为"账户就这么点成交"。
+**按 `max(时间)+1` 做游标翻页会漏单** —— 同一毫秒内的其他记录被整段跳过。
+两处都踩过，后果都很严重：
 
-`account.user_trades_range()` 按 7 天窗口滚动分页并按 `tradeId` 去重；
-单窗口打满 1000 条时从最后一条的时间继续，避免漏单。
+- `userTrades`：某标的 3 天成交 4623 笔，时间游标只取到 4574 笔。漏掉 49 笔
+  就把净持仓算成 4147（真实为 0），凭空多出幽灵持仓，已实现盈亏随之失真。
+  **改用 `fromId` 分页**（tradeId 严格递增），也是官方文档推荐的方式，
+  且不受 `startTime`/`endTime` 的 7 天跨度限制。
+- `income`：12225 条只取到 8647 条（漏 41%），某标的 612 笔成交对应的
+  REALIZED_PNL 一条都没同步到，盈亏归属完全错位。该接口没有 `fromId`，
+  **改用 `page` 翻页**。注意它**没有** userTrades 那种 7 天跨度限制，
+  照搬着切窗口会把 365 天切成 52 段（每段权重 30），一次同步就 429。
 
-## 6. 合约类型不止 PERPETUAL
+另外 `tranId` 在同一笔交易的不同科目间可能重复，做主键要拼上科目与标的，
+否则 `INSERT OR IGNORE` 会吞掉同一笔的手续费或盈亏记录。
+
+## 7. 合约类型不止 PERPETUAL
 
 Binance 还有 `TRADIFI_PERPETUAL`（股票 / 指数 / 商品代币化永续，`underlyingType`
 为 `EQUITY` / `HK_EQUITY` / `INDEX` / `COMMODITY` 等）。按 `contractType == "PERPETUAL"`
 过滤会把它们全漏掉，表现为**持有该类合约却查不到标记价**。放行后 USDT 标的数 528 → 718。
 
-## 7. 字段名 REST 与 WS 不一致
+## 8. 字段名 REST 与 WS 不一致
 
 REST 用完整名（`symbol` / `lastPrice` / `priceChangePercent`），WS 用缩写
 （`s` / `c` / `P`）。`binance._norm_ticker()` 两边都认——其中 `symbol` 曾经漏了
