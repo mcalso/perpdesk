@@ -24,7 +24,7 @@ LOGO_URL = "https://s3-symbol-logo.tradingview.com/{logoid}--big.svg"
 
 # symbol -> logoid 的解析结果，落盘避免每次启动重新 search
 _MAP_FILE = config.ICON_DIR / "_logoid.json"
-_logoid_map: dict[str, str] = {}
+_logoid_map: dict[str, dict] = {}
 _map_loaded = False
 
 # 同时对外的请求数，别把 TradingView 打急了
@@ -73,7 +73,12 @@ def _load_map() -> None:
     config.ICON_DIR.mkdir(parents=True, exist_ok=True)
     if _MAP_FILE.is_file():
         try:
-            _logoid_map.update(json.loads(_MAP_FILE.read_text()))
+            raw = json.loads(_MAP_FILE.read_text())
+            # 兼容旧格式（值是裸 logoid 字符串）
+            _logoid_map.update({
+                k: (v if isinstance(v, dict) else {"logoid": v, "tv": bool(v)})
+                for k, v in raw.items()
+            })
         except Exception as exc:
             log.warning("logoid map unreadable, starting fresh: %s", exc)
     _map_loaded = True
@@ -87,7 +92,16 @@ def _save_map() -> None:
 
 
 def _safe(symbol: str) -> str:
-    return re.sub(r"[^A-Z0-9_]", "", symbol.upper())[:32]
+    """把 symbol 变成安全的文件名。
+
+    不能简单剥掉非 ASCII：Binance 有中文 symbol（龙虾USDT / 哈基米USDT /
+    币安人生USDT …），剥完全都变成 "USDT"，5 个标的会共用同一个缓存文件，
+    谁先请求谁的图标就覆盖掉其他人的。非 ASCII 一律走哈希，保证唯一。
+    """
+    up = symbol.upper()
+    if up.isascii():
+        return re.sub(r"[^A-Z0-9_]", "", up)[:32]
+    return "h" + hashlib.md5(up.encode("utf-8")).hexdigest()[:20]
 
 
 def placeholder(symbol: str, base: str = "") -> bytes:
@@ -106,13 +120,17 @@ def placeholder(symbol: str, base: str = "") -> bytes:
 
 
 async def _resolve_logoid(symbol: str) -> str:
-    """查 TradingView 拿 logoid；查不到记空串，避免反复无效查询。"""
+    """查 TradingView 拿 logoid，顺带记下它有没有这个符号。
+
+    查不到 logoid 记空串，避免反复无效查询；`tv` 字段供图表页判断该用
+    TradingView widget 还是自建图表（中文 symbol 在 TradingView 上不存在）。
+    """
     _load_map()
     if symbol in _logoid_map:
-        return _logoid_map[symbol]
+        return _logoid_map[symbol].get("logoid", "")
 
     search, _ = _clients()
-    logoid = ""
+    logoid, has_tv = "", False
     try:
         resp = await search.get(SEARCH_URL, params={"text": symbol, "exchange": "BINANCE"})
         if resp.status_code == 200:
@@ -120,15 +138,25 @@ async def _resolve_logoid(symbol: str) -> str:
             for hit in resp.json():
                 name = re.sub(r"</?em>", "", hit.get("symbol", "")).upper()
                 if hit.get("type") == "swap" and name == want:
+                    has_tv = True
                     logoid = hit.get("logoid") or hit.get("base-currency-logoid") or ""
                     break
     except Exception as exc:
         log.debug("logoid lookup failed for %s: %s", symbol, exc)
         return ""            # 不写缓存，下次还能重试
 
-    _logoid_map[symbol] = logoid
+    _logoid_map[symbol] = {"logoid": logoid, "tv": has_tv}
     _save_map()
     return logoid
+
+
+async def tradingview_supported(symbol: str) -> bool:
+    """TradingView 是否有该合约的图表（中文 symbol 一律没有）。"""
+    symbol = symbol.upper()
+    _load_map()
+    if symbol not in _logoid_map:
+        await _resolve_logoid(symbol)
+    return bool(_logoid_map.get(symbol, {}).get("tv"))
 
 
 async def _fetch(symbol: str, base: str) -> tuple[bytes, str]:
@@ -175,7 +203,7 @@ async def get(symbol: str, base: str = "") -> tuple[bytes, str]:
 def stats() -> dict:
     _load_map()
     cached = len(list(config.ICON_DIR.glob("*.svg"))) if config.ICON_DIR.is_dir() else 0
-    resolved = sum(1 for v in _logoid_map.values() if v)
+    resolved = sum(1 for v in _logoid_map.values() if v.get("logoid"))
     return {"cachedFiles": cached, "resolved": resolved,
             "noLogo": len(_logoid_map) - resolved, "inflight": len(_inflight)}
 

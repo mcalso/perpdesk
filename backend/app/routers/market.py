@@ -58,6 +58,26 @@ async def icon(symbol: str) -> Response:
     )
 
 
+@router.get("/chart-source/{symbol}")
+async def chart_source(symbol: str) -> dict:
+    """该标的用哪种图表渲染。
+
+    Binance 有中文 symbol（龙虾USDT / 哈基米USDT 等），TradingView 上不存在
+    对应符号，widget 会显示 Invalid symbol，必须回退到自建图表。
+    """
+    symbol = symbol.upper()
+    try:
+        tv = await icons.tradingview_supported(symbol)
+    except Exception:
+        tv = symbol.isascii()        # 查询失败时按经验兜底
+    return {
+        "symbol": symbol,
+        "tradingview": tv,
+        "tvSymbol": f"BINANCE:{symbol}.P" if tv else None,
+        "reason": "" if tv else "TradingView 没有该合约，使用内置图表",
+    }
+
+
 @router.get("/icon-stats")
 async def icon_stats() -> dict:
     return icons.stats()

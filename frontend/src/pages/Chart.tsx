@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SymbolIcon } from '../components/SymbolIcon'
+import { NativeChart } from '../components/NativeChart'
 import { TradingViewChart } from '../components/TradingViewChart'
 import { api, type Ticker } from '../lib/api'
 import { liveFeed, type LiveRow } from '../lib/ws'
@@ -19,6 +20,9 @@ export default function Chart() {
   const [interval, setIntervalV] = useState('60')
   const [adding, setAdding] = useState('')
   const [err, setErr] = useState('')
+  // Binance 有中文 symbol，TradingView 上不存在，得回退到内置图表
+  const [useTV, setUseTV] = useState<boolean | null>(null)
+  const [tvReason, setTvReason] = useState('')
 
   const symbol = (routeSymbol || watch[0]?.symbol || 'BTCUSDT').toUpperCase()
 
@@ -27,6 +31,15 @@ export default function Chart() {
 
   useEffect(() => { loadWatch() }, [])
   useEffect(() => liveFeed.subscribe((m) => setLive(new Map(m))), [])
+
+  useEffect(() => {
+    let alive = true
+    setUseTV(null)
+    api.chartSource(symbol)
+      .then((r) => { if (alive) { setUseTV(r.tradingview); setTvReason(r.reason) } })
+      .catch(() => { if (alive) setUseTV(symbol === encodeURIComponent(symbol)) })
+    return () => { alive = false }
+  }, [symbol])
 
   const rows = useMemo(
     () => watch.map((w) => {
@@ -127,7 +140,20 @@ export default function Chart() {
                 ))}
               </div>
             </div>
-            <TradingViewChart symbol={symbol} interval={interval} height={640} />
+            {useTV === null ? (
+              <div className="empty" style={{ height: 640, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                加载图表…
+              </div>
+            ) : useTV ? (
+              <TradingViewChart symbol={symbol} interval={interval} height={640} />
+            ) : (
+              <>
+                <div className="msg info" style={{ margin: '10px 14px 0' }}>
+                  {tvReason || 'TradingView 没有该合约，使用内置图表'}
+                </div>
+                <NativeChart symbol={symbol} interval={interval} height={600} />
+              </>
+            )}
           </div>
         </div>
       </div>

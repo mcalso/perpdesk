@@ -12,7 +12,7 @@ interface Props {
 export function SymbolIcon({ symbol, size = 20 }: Props) {
   return (
     <img
-      src={`/api/market/icon/${symbol}`}
+      src={`/api/market/icon/${encodeURIComponent(symbol)}`}
       alt=""
       width={size}
       height={size}

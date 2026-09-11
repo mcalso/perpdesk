@@ -102,6 +102,14 @@ export const api = {
 
   symbols: () => req<{ symbol: string; base: string }[]>('/api/market/symbols'),
 
+  klines: (symbol: string, interval: string, limit = 500) =>
+    req<{ t: number; open: number; high: number; low: number; close: number; volume: number }[]>(
+      `/api/market/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`),
+
+  chartSource: (symbol: string) =>
+    req<{ symbol: string; tradingview: boolean; tvSymbol: string | null; reason: string }>(
+      `/api/market/chart-source/${encodeURIComponent(symbol)}`),
+
   watchlist: () => req<{ rows: Ticker[] }>('/api/watchlist'),
   addWatch: (symbol: string) =>
     req<{ ok: boolean; symbols: string[] }>('/api/watchlist', {
