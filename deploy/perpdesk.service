@@ -1,0 +1,30 @@
+[Unit]
+Description=perpdesk backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/opt/perpdesk
+Environment=PERPDESK_HOST=127.0.0.1
+Environment=PERPDESK_PORT=18090
+# 只监听回环，公网流量一律经 nginx（那里才有鉴权）
+ExecStart=/opt/perpdesk/backend/.venv/bin/python -m uvicorn app.main:app \
+    --app-dir /opt/perpdesk/backend --host 127.0.0.1 --port 18090
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+# 凭据文件属于本服务，收紧一点权限面
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/perpdesk/data
+
+StandardOutput=append:/var/log/perpdesk/api.log
+StandardError=append:/var/log/perpdesk/api.log
+
+[Install]
+WantedBy=multi-user.target
