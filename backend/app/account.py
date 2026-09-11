@@ -113,6 +113,40 @@ async def positions() -> list[dict]:
     return sorted(out, key=lambda x: -x["notional"])
 
 
+async def user_trades(symbol: str, start_ms: int | None = None,
+                      end_ms: int | None = None, limit: int = 1000,
+                      from_id: int | None = None) -> list[dict]:
+    """某个标的的成交明细。Binance 要求必须指定 symbol，一次最多 1000 条。
+
+    传 from_id 时按 tradeId 递增取（推荐，见 user_trades_all）；
+    Binance 不允许 fromId 与 startTime/endTime 同时使用。
+    """
+    params: dict[str, Any] = {"symbol": symbol.upper(), "limit": min(limit, 1000)}
+    if from_id is not None:
+        params["fromId"] = from_id
+    else:
+        if start_ms:
+            params["startTime"] = start_ms
+        if end_ms:
+            params["endTime"] = end_ms
+    rows = await _signed_get("/fapi/v1/userTrades", params)
+    return [
+        {
+            "symbol": r["symbol"],
+            "side": "BUY" if r["side"] == "BUY" else "SELL",
+            "qty": float(r["qty"]),
+            "price": float(r["price"]),
+            "fee": float(r.get("commission") or 0),
+            "feeAsset": r.get("commissionAsset", ""),
+            "realizedPnl": float(r.get("realizedPnl") or 0),
+            "traded_at": int(r["time"]),
+            "tradeId": int(r["id"]),
+            "maker": bool(r.get("maker")),
+        }
+        for r in rows
+    ]
+
+
 async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict]:
     """拉取某标的的全部成交，按 tradeId 分页。
 
