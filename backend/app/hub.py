@@ -19,7 +19,7 @@ import websockets
 
 from . import binance, config
 
-log = logging.getLogger("tradview.hub")
+log = logging.getLogger("perpdesk.hub")
 
 
 class TickerHub:

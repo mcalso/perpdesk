@@ -17,7 +17,7 @@ import httpx
 
 from . import config
 
-log = logging.getLogger("tradview.account")
+log = logging.getLogger("perpdesk.account")
 
 _client: httpx.AsyncClient | None = None
 

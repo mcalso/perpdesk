@@ -1,7 +1,15 @@
-# tradview
+# perpdesk
 
-参考 TradingView 的个人投资分析站，自用单机部署。数据来自 Binance U 本位合约公开接口
-与自己的账户（只读）。
+自托管的永续合约分析工作台。行情与图表参考 TradingView 的使用习惯，数据来自 Binance
+U 本位合约公开接口，以及你自己的账户（**只读**）。
+
+单机部署、无外部依赖服务，适合个人自用。
+
+> 本项目与 TradingView 无任何隶属关系。图表部分嵌入的是 TradingView 官方公开提供的
+> 免费 Advanced Chart widget。
+>
+> 本项目仅做数据展示与记账分析，**不含任何下单、撤单或资金操作能力**，
+> 也不构成任何投资建议。
 
 ## 功能
 
@@ -18,21 +26,21 @@
 ## 快速开始
 
 ```bash
-./scripts/tradview.sh start     # 同时起后端(18090)与前端热更新(18200)
-./scripts/tradview.sh status
-./scripts/tradview.sh logs      # 跟踪后端日志
-./scripts/tradview.sh stop
+./scripts/perpdesk.sh start     # 同时起后端(18090)与前端热更新(18200)
+./scripts/perpdesk.sh status
+./scripts/perpdesk.sh logs      # 跟踪后端日志
+./scripts/perpdesk.sh stop
 ```
 
 - 日常开发访问 <http://127.0.0.1:18200>（Vite 热更新，API 自动代理到后端）
-- 只要后端也行：`./scripts/tradview.sh start-api` 后访问 <http://127.0.0.1:18090>，
+- 只要后端也行：`./scripts/perpdesk.sh start-api` 后访问 <http://127.0.0.1:18090>，
   后端会直接托管 `frontend/dist` 的构建产物（改完前端需 `npm run build --prefix frontend`）
 
 > 服务默认只监听 `127.0.0.1`。部署在远程机器时，在 Cursor / VSCode remote 里端口会
 > 自动转发；纯 SSH 的话自己开隧道：`ssh -L 18090:127.0.0.1:18090 user@your-server`
 >
 > ⚠️ 不要用 `pkill -f uvicorn` 之类停服务 —— 启动命令里含 `uvicorn`/`vite` 字样，
-> `pkill -f` 会把执行它的那个 shell 自己也匹配上杀掉。用 `scripts/tradview.sh`，
+> `pkill -f` 会把执行它的那个 shell 自己也匹配上杀掉。用 `scripts/perpdesk.sh`，
 > 它按 PID 文件管理。
 
 ## 配置
@@ -47,7 +55,7 @@ BINANCE_API_SECRET=...
 **只需要读取权限**，不要开交易/提现权限。不配也能用，只是持仓页少了"交易所账户"
 那一块，本地记账功能不受影响。
 
-端口通过环境变量覆盖：`TRADVIEW_PORT`（后端）、`TRADVIEW_WEB_PORT`（前端）。
+端口通过环境变量覆盖：`PERPDESK_PORT`（后端）、`PERPDESK_WEB_PORT`（前端）。
 
 ## 架构
 
@@ -60,7 +68,7 @@ backend/   FastAPI + SQLite
   hub.py       行情快照中心：REST 轮询全市场 + WS bookTicker 推自选
   icons.py     标的图标：TradingView logo 源 + 落盘缓存 + 首字母占位兜底
   pnl.py       净额移动加权平均成本法，支持多空与反手
-data/      tradview.db（自选、交易流水）、icons/（图标缓存）
+data/      perpdesk.db（自选、交易流水）、icons/（图标缓存）
 ```
 
 数据层为什么这么设计，见 **[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)** ——

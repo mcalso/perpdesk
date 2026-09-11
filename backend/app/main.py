@@ -1,7 +1,7 @@
-"""tradview 后端入口。
+"""perpdesk 后端入口。
 
 本地自用站点：无鉴权，默认只监听 127.0.0.1。
-要给内网其他机器看，用 TRADVIEW_HOST=0.0.0.0 启动并自行考虑访问控制。
+要给内网其他机器看，用 PERPDESK_HOST=0.0.0.0 启动并自行考虑访问控制。
 """
 import asyncio
 import logging
@@ -22,7 +22,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-log = logging.getLogger("tradview")
+log = logging.getLogger("perpdesk")
 
 
 @asynccontextmanager
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
                                sorted(hub.rich_rows(), key=lambda x: -x["quoteVolume"])]),
         name="icon-prewarm",
     )
-    log.info("tradview backend ready: %s", hub.status())
+    log.info("perpdesk backend ready: %s", hub.status())
     yield
     prewarm_task.cancel()
     await account_api.cache.stop()
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     db.close()
 
 
-app = FastAPI(title="tradview", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="perpdesk", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

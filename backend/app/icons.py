@@ -17,7 +17,7 @@ import httpx
 
 from . import config
 
-log = logging.getLogger("tradview.icons")
+log = logging.getLogger("perpdesk.icons")
 
 SEARCH_URL = "https://symbol-search.tradingview.com/symbol_search/"
 LOGO_URL = "https://s3-symbol-logo.tradingview.com/{logoid}--big.svg"

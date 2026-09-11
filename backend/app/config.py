@@ -3,16 +3,16 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = Path(os.getenv("TRADVIEW_DATA_DIR", BASE_DIR / "data"))
-DB_PATH = DATA_DIR / "tradview.db"
+DATA_DIR = Path(os.getenv("PERPDESK_DATA_DIR", BASE_DIR / "data"))
+DB_PATH = DATA_DIR / "perpdesk.db"
 ENV_PATH = BASE_DIR / "backend" / ".env"
 
 # Binance U 本位合约。直连比走代理快，客户端一律 trust_env=False。
 FAPI_BASE = "https://fapi.binance.com"
 FSTREAM_BASE = "wss://fstream.binance.com"
 
-HOST = os.getenv("TRADVIEW_HOST", "127.0.0.1")
-PORT = int(os.getenv("TRADVIEW_PORT", "18090"))
+HOST = os.getenv("PERPDESK_HOST", "127.0.0.1")
+PORT = int(os.getenv("PERPDESK_PORT", "18090"))
 
 # 全市场 24h 行情靠 REST 轮询（本机到 Binance 的全市场 WS 流不可用）。
 # 间隔取 30s：ticker/24hr 全市场权重约 80，30s 一次约 160 权重/分钟，

@@ -8,7 +8,7 @@ import httpx
 
 from . import config
 
-log = logging.getLogger("tradview.binance")
+log = logging.getLogger("perpdesk.binance")
 
 # Binance 限速码：429 超频、418 已被临时封禁
 _RATE_LIMIT_CODES = {418, 429}
@@ -32,7 +32,7 @@ def client() -> httpx.AsyncClient:
             base_url=config.FAPI_BASE,
             timeout=httpx.Timeout(10.0),
             trust_env=False,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; tradview/0.1)"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; perpdesk/0.1)"},
         )
     return _client
 

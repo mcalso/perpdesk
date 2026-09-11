@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tradview 启停脚本。
+# perpdesk 启停脚本。
 #
 # 用 PID 文件管理进程，不要用 pkill -f 匹配命令行：这个项目的启动命令里含
 # "uvicorn"/"vite" 字样，pkill -f 会把执行它的那个 shell 自己也匹配上并杀掉。
@@ -7,8 +7,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="$ROOT/.run"
-API_PORT="${TRADVIEW_PORT:-18090}"
-WEB_PORT="${TRADVIEW_WEB_PORT:-18200}"
+API_PORT="${PERPDESK_PORT:-18090}"
+WEB_PORT="${PERPDESK_WEB_PORT:-18200}"
 mkdir -p "$RUN_DIR"
 
 pid_file() { echo "$RUN_DIR/$1.pid"; }
@@ -65,7 +65,7 @@ case "${1:-}" in
   stop)     stop_one web; stop_one api ;;
   restart)  stop_one web; stop_one api; sleep 1; start_api; start_web ;;
   restart-api) stop_one api; sleep 1; start_api ;;
-  status)   echo "tradview:"; status_one api; status_one web ;;
+  status)   echo "perpdesk:"; status_one api; status_one web ;;
   logs)     tail -n "${2:-40}" -F "$(log_file api)" ;;
   *)
     echo "用法: $0 {start|start-api|stop|restart|restart-api|status|logs [行数]}"
