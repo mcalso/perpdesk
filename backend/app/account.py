@@ -174,38 +174,47 @@ async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict
 
 async def income_range(start_ms: int, end_ms: int | None = None,
                        income_type: str | None = None) -> list[dict]:
-    """拉取一段时间的资金流水，自动分页并按 tranId 去重。
+    """拉取一段时间的资金流水。
 
-    与 userTrades 一样受时间窗口与单次 1000 条限制，用游标往前滚。
+    **按固定时间窗口 + 页码分页，不能用时间游标。** 与 userTrades 同理，
+    `max(time)+1` 会跳过同一毫秒内的其他记录 —— 实测某标的 612 笔成交对应的
+    REALIZED_PNL 被整段漏掉，导致该标的的盈亏归属完全错位。
+    income 接口没有 fromId，但支持 page，于是改成：7 天一段窗口，
+    段内用 page 翻页直到取空。
     """
     end_ms = end_ms or int(time.time() * 1000)
+    window = 7 * 86400 * 1000
     seen: dict[Any, dict] = {}
     cursor = start_ms
-    guard = 0
-    while cursor < end_ms and guard < 200:
-        guard += 1
-        rows = await income(income_type, cursor, limit=1000)
-        if not rows:
-            break
-        for r in rows:
-            seen[r["tranId"]] = r
-        if len(rows) < 1000:
-            break
-        nxt = max(r["t"] for r in rows) + 1
-        if nxt <= cursor:          # 时间戳重复，防死循环
-            break
-        cursor = nxt
+    while cursor < end_ms:
+        chunk_end = min(cursor + window, end_ms)
+        page = 1
+        while page <= 100:                   # 单窗口 10 万条封顶
+            rows = await income(income_type, cursor, chunk_end, page=page, limit=1000)
+            if not rows:
+                break
+            for r in rows:
+                seen[r["tranId"]] = r
+            if len(rows) < 1000:
+                break
+            page += 1
+        cursor = chunk_end + 1
     return sorted(seen.values(), key=lambda r: r["t"])
 
 
 async def income(income_type: str | None = None, start_ms: int | None = None,
+                 end_ms: int | None = None, page: int | None = None,
                  limit: int = 1000) -> list[dict]:
-    """资金流水：REALIZED_PNL / FUNDING_FEE / COMMISSION 等。"""
+    """资金流水：REALIZED_PNL / FUNDING_FEE / COMMISSION / TRANSFER 等。"""
     params: dict[str, Any] = {"limit": min(limit, 1000)}
     if income_type:
         params["incomeType"] = income_type
     if start_ms:
         params["startTime"] = start_ms
+    if end_ms:
+        params["endTime"] = end_ms
+    if page:
+        params["page"] = page
     rows = await _signed_get("/fapi/v1/income", params)
     return [
         {
