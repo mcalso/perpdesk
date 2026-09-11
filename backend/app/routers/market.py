@@ -51,10 +51,13 @@ async def icon(symbol: str) -> Response:
     """标的图标。后端代理 + 落盘缓存，查不到的返回首字母占位图。"""
     meta = hub.meta.get(symbol.upper()) or {}
     data, media = await icons.get(symbol, meta.get("base", ""))
+    # 占位图只缓存 10 分钟：它可能在后续解析中变成真实 logo，
+    # 若按真实 logo 那样缓存 7 天，浏览器会长期显示过时的占位图。
+    placeholder = icons.PLACEHOLDER_MARK in data[:400]
+    ttl = 600 if placeholder else 604800
     return Response(
         content=data, media_type=media,
-        # 图标基本不变，让浏览器缓存 7 天，翻页不再回源
-        headers={"Cache-Control": "public, max-age=604800"},
+        headers={"Cache-Control": f"public, max-age={ttl}"},
     )
 
 

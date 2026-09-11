@@ -174,11 +174,15 @@ async def chart_symbol(symbol: str, base: str = "") -> dict:
     return {"tv": info.get("tv", False), "tvSymbol": info.get("tvSymbol", "")}
 
 
+# 占位图的标记：文件名后缀区分，便于判断缓存里的是不是最终结果
+PLACEHOLDER_MARK = b"<circle"
+
+
 async def _fetch(symbol: str, base: str) -> tuple[bytes, str]:
     """返回 (内容, content-type)，并落盘缓存。"""
     path = config.ICON_DIR / f"{_safe(symbol)}.svg"
     async with _sem:
-        logoid = (await _resolve(symbol, base)).get("logoid", "")
+        logoid = (await _resolve(symbol.upper(), base)).get("logoid", "")
         if logoid:
             _, logo = _clients()
             try:
@@ -198,18 +202,25 @@ async def _fetch(symbol: str, base: str) -> tuple[bytes, str]:
 
 
 async def get(symbol: str, base: str = "") -> tuple[bytes, str]:
+    """返回 (内容, content-type, 是否占位图)。
+
+    是否占位图要透出去：占位图只能短缓存 —— 它可能在下次解析时变成真实 logo，
+    若和真实 logo 一样设 7 天强缓存，浏览器会一直显示过时的占位图。
+    """
+    raw_symbol = symbol
     symbol = _safe(symbol)
     if not symbol:
         return placeholder("?"), "image/svg+xml"
 
     path = config.ICON_DIR / f"{symbol}.svg"
     if path.is_file():
-        return path.read_bytes(), "image/svg+xml"
+        data = path.read_bytes()
+        return data, "image/svg+xml"
 
     # 同一 symbol 的并发请求合流，首屏几百个图标不会放大成几百次外部请求
     task = _inflight.get(symbol)
     if task is None:
-        task = asyncio.create_task(_fetch(symbol, base))
+        task = asyncio.create_task(_fetch(raw_symbol, base))
         _inflight[symbol] = task
         task.add_done_callback(lambda _t, s=symbol: _inflight.pop(s, None))
     return await task
