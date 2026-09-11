@@ -144,9 +144,13 @@ def _asset_class(underlying_type: str) -> str:
 
 
 def _norm_ticker(r: dict) -> dict:
-    """REST 与 WS 字段名不同，统一成内部结构。"""
+    """REST 与 WS 字段名不同，统一成内部结构。
+
+    REST 用完整字段名（symbol/lastPrice/...），WS 用缩写（s/c/...）。
+    每个字段都要两边都认，symbol 也不例外。
+    """
     return {
-        "symbol": r["symbol"],
+        "symbol": r.get("symbol") or r.get("s") or "",
         "last": float(r.get("lastPrice") or r.get("c") or 0),
         "open": float(r.get("openPrice") or r.get("o") or 0),
         "high": float(r.get("highPrice") or r.get("h") or 0),

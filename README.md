@@ -65,23 +65,22 @@ frontend/  React 18 + Vite 5 + TypeScript + recharts
 backend/   FastAPI + SQLite
   binance.py   公开行情 REST（带 418/429 退避重试）
   account.py   账户只读接口（HMAC 签名；刻意不实现任何下单接口）
-  hub.py       行情快照中心：REST 轮询全市场 + WS bookTicker 推自选
+  hub.py       行情快照中心：WS 全市场流为主，REST 仅首屏与断流兜底
   icons.py     标的图标：TradingView logo 源 + 落盘缓存 + 首字母占位兜底
   pnl.py       净额移动加权平均成本法，支持多空与反手
 data/      perpdesk.db（自选、交易流水）、icons/（图标缓存）
 ```
 
 数据层为什么这么设计，见 **[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)** ——
-某些网络环境下 Binance 合约的全市场 WS 流是不通的、REST 会间歇 418，那份文档记录了
-完整实测过程与应对。**如果你部署在境外云服务器上，可以直接改用 WS 全市场流**，
-实时性从 30s 提升到 1s，文档末尾写了怎么改。
+其中最重要的一条：**WS 要连 `stream.binancefuture.com` 而不是 `fstream.binance.com`** —— 
+后者的全市场数组流连得上却一帧不推（SUBSCRIBE 还会返回成功应答），国内与境外都能复现。
 
 ## 刷新节奏
 
 | 数据 | 周期 | 说明 |
 |---|---|---|
-| 自选标的价格 | 1s | WS `bookTicker` 实时推送 |
-| 全市场 24h 行情 / 资金费率 | 30s | 后端 REST 轮询，失败保留上一份快照 |
+| 全市场 24h 行情 / 标记价 / 资金费率 | 1s | WS `!ticker@arr` + `!markPrice@arr@1s` |
+| 自选标的买一卖一 | 实时 | WS `bookTicker` 合并流 |
 | 交易所持仓 / 权益 | 12s | 后端集中轮询，前端 5s 读缓存 |
 | 本地流水盈亏 | 20s | 本地计算，跟随行情标记价 |
 | 合约列表 exchangeInfo | 10min | 新上架标的自动出现 |
@@ -115,8 +114,7 @@ data/      perpdesk.db（自选、交易流水）、icons/（图标缓存）
 
 ## 已知限制
 
-- 全市场行情 30 秒刷新一次（受限于 REST 轮询），只有自选标的是实时的；
-- 被 Binance 限速时行情会停在上一份快照，顶栏状态灯会转黄并显示数据年龄；
+- WS 断流超过 45 秒会自动退回 REST 轮询兜底，顶栏状态灯会转黄并显示数据年龄；
 - 本地流水的盈亏曲线只画已实现部分 —— 历史时点的浮盈要用当时市价才准，
   用当前价回算会把曲线变成"事后诸葛亮"；
 - 无鉴权，只监听回环地址，不要直接绑 `0.0.0.0` 暴露到内网。

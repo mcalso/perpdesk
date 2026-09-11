@@ -9,14 +9,26 @@ ENV_PATH = BASE_DIR / "backend" / ".env"
 
 # Binance U 本位合约。直连比走代理快，客户端一律 trust_env=False。
 FAPI_BASE = "https://fapi.binance.com"
-FSTREAM_BASE = "wss://fstream.binance.com"
+
+# ⚠️ 用 stream.binancefuture.com 而不是 fstream.binance.com。
+# 两者都是官方合约 WS 端点，但 fstream 的全市场数组流（!ticker@arr /
+# !miniTicker@arr / !markPrice@arr）以及 aggTrade 实测**连得上却一帧不推**
+# （SUBSCRIBE 甚至会返回成功应答），国内机器与境外机器都能复现，不是网络问题。
+# 详见 docs/DATA_SOURCES.md。
+FSTREAM_BASE = "wss://stream.binancefuture.com"
+
+# 全市场流：!ticker@arr 给 24h 行情，!markPrice@arr@1s 给标记价 + 资金费率。
+# 一条连接喂所有前端，且完全不消耗 REST 权重。
+MARKET_STREAMS = "!ticker@arr/!markPrice@arr@1s"
 
 HOST = os.getenv("PERPDESK_HOST", "127.0.0.1")
 PORT = int(os.getenv("PERPDESK_PORT", "18090"))
 
-# 全市场 24h 行情靠 REST 轮询（本机到 Binance 的全市场 WS 流不可用）。
-# 间隔取 30s：ticker/24hr 全市场权重约 80，30s 一次约 160 权重/分钟，
-# 给同机其他采集进程留出余量，仍会间歇 418，失败按 1.6 倍退避。
+# 全市场行情以 WS 为主。REST 只在两种情况下用：
+#   1) 启动首屏（WS 的数组流是增量推送，要几十秒才覆盖全市场）；
+#   2) WS 断流超过 WS_STALE_SEC 时兜底 —— fstream 那次故障说明端点会坏，
+#      留一条退路，但正常情况下一次也不会调用。
+WS_STALE_SEC = 45.0
 REST_POLL_INTERVAL = 30.0
 REST_POLL_MAX_INTERVAL = 180.0
 
