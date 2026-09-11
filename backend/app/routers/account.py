@@ -4,6 +4,7 @@ import time
 from fastapi import APIRouter, HTTPException, Query
 
 from .. import account, db
+from ..hub import hub
 
 router = APIRouter(prefix="/api/account", tags=["account"])
 
@@ -34,7 +35,8 @@ def _guard() -> None:
 async def overview() -> dict:
     """读后端集中维护的账户快照，不直接打 Binance（见 account.AccountCache）。"""
     _guard()
-    snap = account.cache.snapshot()
+    # 注入行情中心的实时标记价，让浮盈按 1 秒级行情走
+    snap = account.cache.snapshot(hub.mark_prices())
     if snap["ageSec"] is None and snap["error"]:
         raise HTTPException(502, snap["error"])
     return snap

@@ -42,12 +42,15 @@ export interface ExchangePosition {
   unrealized: number; leverage: number; liquidationPrice: number
   notional: number; side: 'LONG' | 'SHORT'; marginType: string
   weight: number
+  exchangeUnrealized: number
+  live: boolean
 }
 
 export interface AccountOverview {
   balances: ExchangeBalance[]
   positions: ExchangePosition[]
   equity: number
+  wallet: number
   totalUnrealized: number
   grossNotional: number
   ageSec: number | null

@@ -37,9 +37,9 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
 
   useEffect(() => {
     load()
-    // 读的是后端集中维护的快照（12s 轮询一次 Binance），所以这里可以勤快些，
-    // 多开几个标签页也不会放大对交易所的请求量
-    const t = setInterval(load, 5000)
+    // 浮动盈亏在后端用 1 秒级的实时标记价本地重算，所以这里读得勤一点就能跳动；
+    // 读的是后端缓存，多开几个标签页也不会放大对交易所的请求量
+    const t = setInterval(load, 2000)
     return () => clearInterval(t)
   }, [load])
 
@@ -131,8 +131,8 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
         <div className="panel-head">
           交易所持仓
           <span className="muted" style={{ fontWeight: 400 }}>
-            只读 · 后端每 {data?.pollInterval ?? 12}s 拉取
-            {data?.ageSec != null && ` · ${data.ageSec.toFixed(0)}s 前更新`}
+            浮盈实时 · 持仓结构每 {data?.pollInterval ?? 6}s 校准
+            {data?.ageSec != null && ` · ${data.ageSec.toFixed(0)}s 前`}
             {data?.error && ` · ⚠ ${data.error}`}
           </span>
           <div className="spacer" />

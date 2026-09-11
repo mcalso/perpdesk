@@ -226,25 +226,50 @@ class AccountCache:
                     log.warning("account snapshot refresh failed: %s", self.last_error)
             await asyncio.sleep(config.ACCOUNT_POLL_INTERVAL)
 
-    def snapshot(self) -> dict:
-        equity = sum(b["balance"] + b["unrealized"] for b in self.balances
-                     if b["asset"] in ("USDT", "USDC"))
-        gross = sum(p["notional"] for p in self.positions)
-        # 占比按名义价值的绝对值算，多空都计入敞口
-        positions = [
-            {**p, "weight": (p["notional"] / gross * 100) if gross else 0.0}
-            for p in self.positions
-        ]
+    def snapshot(self, marks: dict[str, float] | None = None) -> dict:
+        """账户快照。
+
+        `marks` 传入行情中心的实时标记价时，浮动盈亏 / 名义价值 / 占比全部按它
+        重算 —— 这些量只随价格变化，用 1 秒级的行情本地算即可，不必为了让浮盈
+        跳动去加快对交易所的轮询（那既费权重又更慢）。
+        持仓量与开仓价仍以交易所返回的为准，只有下单成交时才会变。
+        """
+        marks = marks or {}
+        positions = []
+        live_unrealized = 0.0
+        for p in self.positions:
+            mark = marks.get(p["symbol"]) or p["markPrice"]
+            qty, entry = p["qty"], p["entryPrice"]
+            unrealized = (mark - entry) * qty if entry else p["unrealized"]
+            notional = abs(qty) * mark
+            live_unrealized += unrealized
+            positions.append({
+                **p,
+                "markPrice": mark,
+                "unrealized": unrealized,
+                "notional": notional,
+                # 交易所口径的那份留着，便于核对本地计算是否漂移
+                "exchangeUnrealized": p["unrealized"],
+                "live": p["symbol"] in marks,
+            })
+
+        gross = sum(p["notional"] for p in positions)
+        for p in positions:
+            # 占比按名义价值的绝对值算，多空都计入敞口
+            p["weight"] = (p["notional"] / gross * 100) if gross else 0.0
+
+        # 权益 = 钱包余额 + 实时浮盈（余额本身只在成交/结算时变）
+        wallet = sum(b["balance"] for b in self.balances if b["asset"] in ("USDT", "USDC"))
         return {
             "balances": self.balances,
             "positions": positions,
-            "equity": equity,
-            "totalUnrealized": sum(p["unrealized"] for p in self.positions),
+            "equity": wallet + live_unrealized,
+            "wallet": wallet,
+            "totalUnrealized": live_unrealized,
             "grossNotional": gross,
             "ageSec": round(time.time() - self.last_ok, 1) if self.last_ok else None,
             "error": self.last_error,
             "pollInterval": config.ACCOUNT_POLL_INTERVAL,
         }
-
 
 cache = AccountCache()

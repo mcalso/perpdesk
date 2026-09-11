@@ -37,8 +37,12 @@ META_REFRESH_INTERVAL = 600.0
 EXCHANGE_INFO_TTL = 600.0
 
 # 账户快照轮询间隔（秒）。后端集中拉一次喂所有前端连接，
-# 权重恒定（balance 5 + positionRisk 5 = 10/次），不随打开的标签页数量增长。
-ACCOUNT_POLL_INTERVAL = 12.0
+# 权重恒定（balance 5 + positionRisk 5 = 10/次），不随标签页数量增长。
+#
+# 这个间隔只决定「新开的仓位多久出现」——浮动盈亏、名义价值、占比都由
+# snapshot() 用行情中心的实时标记价本地重算，是 1 秒级的，与此无关。
+# 6s 约合 100 权重/分钟，占 2400 限额的 4%。
+ACCOUNT_POLL_INTERVAL = 6.0
 
 # 自选标的图标缓存目录
 ICON_DIR = DATA_DIR / "icons"
