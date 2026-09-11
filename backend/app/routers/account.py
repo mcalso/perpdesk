@@ -76,30 +76,17 @@ async def sync_trades(
         for r in inc
     ]) if inc else 0
 
-    # 2) 待同步标的与各自的时间窗口
-    windows: dict[str, tuple[int, int]] = {}
+    # 2) 待同步标的。fromId 分页会遍历该标的全部历史，不必再算时间窗口。
     if symbols:
-        for sym in (x.strip().upper() for x in symbols.split(",") if x.strip()):
-            windows[sym] = (start_ms, now_ms)
+        wanted = {x.strip().upper() for x in symbols.split(",") if x.strip()}
     else:
-        for r in inc:
-            sym = r["symbol"]
-            if not sym:
-                continue
-            lo, hi = windows.get(sym, (r["t"], r["t"]))
-            windows[sym] = (min(lo, r["t"]), max(hi, r["t"]))
-        # 已平仓标的：开仓往往早于第一笔盈亏结算，向前多留 7 天
-        pad = 7 * 86400 * 1000
-        windows = {s: (max(start_ms, lo - pad), min(now_ms, hi + pad))
-                   for s, (lo, hi) in windows.items()}
-        # 当前持仓可能尚无任何结算记录，用完整区间兜底
+        wanted = {r["symbol"] for r in inc if r["symbol"]}
         try:
-            for p in await account.positions():
-                windows[p["symbol"]] = (start_ms, now_ms)
+            wanted |= {p["symbol"] for p in await account.positions()}
         except Exception as exc:
             raise HTTPException(502, str(exc)) from exc
 
-    if not windows:
+    if not wanted:
         return {"inserted": 0, "skipped": 0, "incomeInserted": income_new,
                 "symbols": [], "note": "这段时间内没有任何交易记录"}
 
@@ -108,9 +95,9 @@ async def sync_trades(
         t["note"] for t in db.list_trades() if t["note"].startswith("binance:")
     }
     rows, skipped, failed = [], 0, []
-    for i, (sym, (lo, hi)) in enumerate(sorted(windows.items())):
+    for i, sym in enumerate(sorted(wanted)):
         try:
-            fills = await account.user_trades_range(sym, lo, hi)
+            fills = await account.user_trades_all(sym, start_ms)
         except Exception as exc:
             failed.append({"symbol": sym, "error": str(exc)[:120]})
             continue
@@ -130,8 +117,8 @@ async def sync_trades(
         "inserted": inserted,
         "skipped": skipped,
         "incomeInserted": income_new,
-        "symbols": sorted(windows),
-        "symbolCount": len(windows),
+        "symbols": sorted(wanted),
+        "symbolCount": len(wanted),
         "days": days,
         "failed": failed[:10],
     }

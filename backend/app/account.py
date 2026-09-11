@@ -113,53 +113,29 @@ async def positions() -> list[dict]:
     return sorted(out, key=lambda x: -x["notional"])
 
 
-# Binance 限制：userTrades 的 startTime/endTime 跨度不能超过 7 天；
-# 两者都不传则只返回最近 7 天。要拉更长历史必须自己按窗口滚动。
-_TRADE_WINDOW_MS = 7 * 86400 * 1000
+async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict]:
+    """拉取某标的的全部成交，按 tradeId 分页。
 
+    **必须用 fromId 分页，不能用时间游标。** 按 `max(time)+1` 往前滚会跳过同一
+    毫秒内的其他成交：实测某高频标的 3 天内成交 4623 笔，时间游标只拿到 4574 笔，
+    漏掉的 49 笔直接把净持仓算成了 4147（真实为 0）——本地推算的持仓与已实现
+    盈亏会因此严重失真。tradeId 严格递增，不存在这个问题。
 
-async def user_trades_range(symbol: str, start_ms: int, end_ms: int | None = None) -> list[dict]:
-    """拉取一段时间内的全部成交，自动按 7 天窗口分段并去重。"""
-    end_ms = end_ms or int(time.time() * 1000)
-    seen: dict[Any, dict] = {}
-    cursor = start_ms
-    while cursor < end_ms:
-        chunk_end = min(cursor + _TRADE_WINDOW_MS, end_ms)
-        rows = await user_trades(symbol, cursor, chunk_end)
+    start_ms 只用于结果过滤，分页本身始终从头遍历，避免边界漏单。
+    """
+    out: dict[int, dict] = {}
+    from_id = 0
+    for _ in range(200):                      # 20 万笔封顶，防御性上限
+        rows = await user_trades(symbol, from_id=from_id, limit=1000)
+        if not rows:
+            break
         for r in rows:
-            seen[r["tradeId"]] = r
-        # 单窗口打满 1000 条说明可能被截断，从最后一条的时间继续，避免漏单
-        if len(rows) >= 1000:
-            cursor = max(r["traded_at"] for r in rows) + 1
-        else:
-            cursor = chunk_end + 1
-    return sorted(seen.values(), key=lambda r: r["traded_at"])
-
-
-async def user_trades(symbol: str, start_ms: int | None = None,
-                      end_ms: int | None = None, limit: int = 1000) -> list[dict]:
-    """某个标的的成交明细。Binance 要求必须指定 symbol，一次最多 1000 条。"""
-    params: dict[str, Any] = {"symbol": symbol.upper(), "limit": min(limit, 1000)}
-    if start_ms:
-        params["startTime"] = start_ms
-    if end_ms:
-        params["endTime"] = end_ms
-    rows = await _signed_get("/fapi/v1/userTrades", params)
-    return [
-        {
-            "symbol": r["symbol"],
-            "side": "BUY" if r["side"] == "BUY" else "SELL",
-            "qty": float(r["qty"]),
-            "price": float(r["price"]),
-            "fee": float(r.get("commission") or 0),
-            "feeAsset": r.get("commissionAsset", ""),
-            "realizedPnl": float(r.get("realizedPnl") or 0),
-            "traded_at": int(r["time"]),
-            "tradeId": r.get("id"),
-            "maker": bool(r.get("maker")),
-        }
-        for r in rows
-    ]
+            out[r["tradeId"]] = r
+        if len(rows) < 1000:
+            break
+        from_id = max(r["tradeId"] for r in rows) + 1
+    fills = sorted(out.values(), key=lambda r: r["traded_at"])
+    return [f for f in fills if not start_ms or f["traded_at"] >= start_ms]
 
 
 async def income_range(start_ms: int, end_ms: int | None = None,
