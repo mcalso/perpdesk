@@ -23,8 +23,12 @@ function loadTradingView(): Promise<void> {
 }
 
 interface Props {
-  /** Binance 合约标的，如 BTCUSDT */
-  symbol: string
+  /**
+   * TradingView 的完整符号，如 `BINANCE:BTCUSDT.P`。
+   * 由后端 /api/market/chart-source 解析给出 —— 中文标的在 TradingView 上
+   * 是拼音名（牛来USDT → BINANCE:NIULAIUSDT.P），不能在前端拼。
+   */
+  tvSymbol: string
   interval?: string
   height?: number
 }
@@ -36,7 +40,7 @@ interface Props {
  * Binance 那条链路的限速影响，指标与画线工具也都是 TradingView 原生的。
  * 代价是喂不进自定义数据；真要自研指标得换成 klinecharts，见 README。
  */
-export function TradingViewChart({ symbol, interval = '60', height = 620 }: Props) {
+export function TradingViewChart({ tvSymbol, interval = '60', height = 620 }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const containerId = useRef(`tv_${Math.random().toString(36).slice(2)}`)
@@ -56,8 +60,7 @@ export function TradingViewChart({ symbol, interval = '60', height = 620 }: Prop
 
         new window.TradingView.widget({
           container_id: containerId.current,
-          // .P 后缀是 TradingView 对永续合约的标记
-          symbol: `BINANCE:${symbol}.P`,
+          symbol: tvSymbol,
           interval,
           timezone: 'Asia/Shanghai',
           theme: 'dark',
@@ -74,7 +77,7 @@ export function TradingViewChart({ symbol, interval = '60', height = 620 }: Prop
       .catch((e: Error) => { if (!cancelled) setError(e.message) })
 
     return () => { cancelled = true }
-  }, [symbol, interval])
+  }, [tvSymbol, interval])
 
   if (error) {
     return (

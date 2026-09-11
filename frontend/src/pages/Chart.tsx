@@ -22,6 +22,7 @@ export default function Chart() {
   const [err, setErr] = useState('')
   // Binance 有中文 symbol，TradingView 上不存在，得回退到内置图表
   const [useTV, setUseTV] = useState<boolean | null>(null)
+  const [tvSymbol, setTvSymbol] = useState('')
   const [tvReason, setTvReason] = useState('')
 
   const symbol = (routeSymbol || watch[0]?.symbol || 'BTCUSDT').toUpperCase()
@@ -36,8 +37,17 @@ export default function Chart() {
     let alive = true
     setUseTV(null)
     api.chartSource(symbol)
-      .then((r) => { if (alive) { setUseTV(r.tradingview); setTvReason(r.reason) } })
-      .catch(() => { if (alive) setUseTV(symbol === encodeURIComponent(symbol)) })
+      .then((r) => {
+        if (!alive) return
+        setUseTV(r.tradingview)
+        setTvSymbol(r.tvSymbol || '')
+        setTvReason(r.reason)
+      })
+      .catch(() => {
+        if (!alive) return
+        setUseTV(symbol === encodeURIComponent(symbol))
+        setTvSymbol(`BINANCE:${symbol}.P`)
+      })
     return () => { alive = false }
   }, [symbol])
 
@@ -114,6 +124,11 @@ export default function Chart() {
               <div className="sym-cell">
                 <SymbolIcon symbol={symbol} size={22} />
                 <span style={{ fontSize: 15 }}>{symbol}</span>
+                {useTV && tvSymbol && !tvSymbol.includes(symbol) && (
+                  <span className="tag" title="该合约在 TradingView 上的符号">
+                    {tvSymbol.replace('BINANCE:', '')}
+                  </span>
+                )}
               </div>
               {current && (
                 <>
@@ -144,8 +159,8 @@ export default function Chart() {
               <div className="empty" style={{ height: 640, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 加载图表…
               </div>
-            ) : useTV ? (
-              <TradingViewChart symbol={symbol} interval={interval} height={640} />
+            ) : useTV && tvSymbol ? (
+              <TradingViewChart tvSymbol={tvSymbol} interval={interval} height={640} />
             ) : (
               <>
                 <div className="msg info" style={{ margin: '10px 14px 0' }}>

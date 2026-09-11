@@ -76,7 +76,8 @@ def _load_map() -> None:
             raw = json.loads(_MAP_FILE.read_text())
             # 兼容旧格式（值是裸 logoid 字符串）
             _logoid_map.update({
-                k: (v if isinstance(v, dict) else {"logoid": v, "tv": bool(v)})
+                k: (v if isinstance(v, dict)
+                    else {"logoid": v, "tv": bool(v), "tvSymbol": f"{k}.P" if v else ""})
                 for k, v in raw.items()
             })
         except Exception as exc:
@@ -119,51 +120,65 @@ def placeholder(symbol: str, base: str = "") -> bytes:
     ).encode()
 
 
-async def _resolve_logoid(symbol: str) -> str:
-    """查 TradingView 拿 logoid，顺带记下它有没有这个符号。
+async def _resolve(symbol: str, base: str = "") -> dict:
+    """向 TradingView 查该合约的 logo 与真实符号名。
 
-    查不到 logoid 记空串，避免反复无效查询；`tv` 字段供图表页判断该用
-    TradingView widget 还是自建图表（中文 symbol 在 TradingView 上不存在）。
+    Binance 的中文 symbol 在 TradingView 上是**拼音名**：
+    牛来USDT → NIULAIUSDT.P，我踏马来了USDT → WOTAMALAILIAOUSDT.P。
+    所以不能拿完整 symbol 去搜（搜不到），要拿 base asset 的中文去搜 ——
+    TradingView 的 description 形如「牛来 (Niu Lai) / TetherUS PERPETUAL CONTRACT」，
+    据此回配。用拼音库自动转写不可靠：多音字会出错（"了"读 liǎo 而非 le）。
+
+    返回 {"logoid": ..., "tv": bool, "tvSymbol": "NIULAIUSDT.P" | ""}
     """
     _load_map()
     if symbol in _logoid_map:
-        return _logoid_map[symbol].get("logoid", "")
+        return _logoid_map[symbol]
 
     search, _ = _clients()
-    logoid, has_tv = "", False
-    try:
-        resp = await search.get(SEARCH_URL, params={"text": symbol, "exchange": "BINANCE"})
-        if resp.status_code == 200:
-            want = f"{symbol}.P"
+    found = {"logoid": "", "tv": False, "tvSymbol": ""}
+
+    async def try_query(text: str, match) -> bool:
+        try:
+            resp = await search.get(SEARCH_URL, params={"text": text, "exchange": "BINANCE"})
+            if resp.status_code != 200:
+                return False
             for hit in resp.json():
+                if hit.get("type") != "swap":
+                    continue
                 name = re.sub(r"</?em>", "", hit.get("symbol", "")).upper()
-                if hit.get("type") == "swap" and name == want:
-                    has_tv = True
-                    logoid = hit.get("logoid") or hit.get("base-currency-logoid") or ""
-                    break
-    except Exception as exc:
-        log.debug("logoid lookup failed for %s: %s", symbol, exc)
-        return ""            # 不写缓存，下次还能重试
+                desc = re.sub(r"</?em>", "", hit.get("description", ""))
+                if match(name, desc):
+                    found["tv"] = True
+                    found["tvSymbol"] = name
+                    found["logoid"] = hit.get("logoid") or hit.get("base-currency-logoid") or ""
+                    return True
+        except Exception as exc:
+            log.debug("symbol search failed for %s: %s", text, exc)
+        return False
 
-    _logoid_map[symbol] = {"logoid": logoid, "tv": has_tv}
+    ok = await try_query(symbol, lambda n, d: n == f"{symbol}.P")
+    if not ok and base and not base.isascii():
+        # 中文标的：拿 base 搜，按 description 开头的中文名回配
+        await try_query(base, lambda n, d: d.startswith(base) and n.endswith("USDT.P"))
+
+    _logoid_map[symbol] = found
     _save_map()
-    return logoid
+    return found
 
 
-async def tradingview_supported(symbol: str) -> bool:
-    """TradingView 是否有该合约的图表（中文 symbol 一律没有）。"""
+async def chart_symbol(symbol: str, base: str = "") -> dict:
+    """图表页用：TradingView 是否支持该合约，以及它在那边叫什么。"""
     symbol = symbol.upper()
-    _load_map()
-    if symbol not in _logoid_map:
-        await _resolve_logoid(symbol)
-    return bool(_logoid_map.get(symbol, {}).get("tv"))
+    info = await _resolve(symbol, base)
+    return {"tv": info.get("tv", False), "tvSymbol": info.get("tvSymbol", "")}
 
 
 async def _fetch(symbol: str, base: str) -> tuple[bytes, str]:
     """返回 (内容, content-type)，并落盘缓存。"""
     path = config.ICON_DIR / f"{_safe(symbol)}.svg"
     async with _sem:
-        logoid = await _resolve_logoid(symbol)
+        logoid = (await _resolve(symbol, base)).get("logoid", "")
         if logoid:
             _, logo = _clients()
             try:
