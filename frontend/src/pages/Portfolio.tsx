@@ -7,7 +7,7 @@ import { SortHeader } from '../components/SortHeader'
 import { SymbolIcon } from '../components/SymbolIcon'
 import { useSort } from '../lib/useSort'
 import { api, type PortfolioSummary, type Trade } from '../lib/api'
-import { fmtDate, fmtPct, fmtPrice, fmtTime, fmtUsd, trendClass } from '../lib/format'
+import { fmtDate, fmtPrice, fmtQty, fmtTime, fmtUsd, trendClass } from '../lib/format'
 
 function StatCard({ label, value, sub, cls }: {
   label: string; value: string; sub?: string; cls?: string
@@ -107,9 +107,7 @@ export default function Portfolio() {
   }, [exchangeSymbols, sum])
 
   const s = sum?.summary
-  const open = useMemo(() => sum?.positions.filter((p) => p.qty !== 0) || [], [sum])
   const closed = useMemo(() => sum?.positions.filter((p) => p.qty === 0) || [], [sum])
-  const openSort = useSort(open, 'value')
   const closedSort = useSort(closed, 'realized')
   const tradeSort = useSort(trades, 'traded_at')
 
@@ -118,9 +116,9 @@ export default function Portfolio() {
       <ExchangeAccount onSynced={reload} />
 
       <div className="panel-head" style={{ border: 'none', padding: '4px 0', color: 'var(--text-dim)' }}>
-        本地流水分析
+        历史盈亏分析
         <span className="muted" style={{ fontWeight: 400 }}>
-          按记账流水推算，用于历史盈亏；当前持仓以上方交易所数据为准
+          按成交流水回放，统计已落袋的损益；当前持仓与浮盈以上方交易所数据为准
         </span>
       </div>
       {s?.hasIncome && Math.abs((s.totalRealized + s.totalFunding) - (s.exchangeRealized + s.exchangeCommission + s.totalFunding)) > 1 && (
@@ -138,18 +136,17 @@ export default function Portfolio() {
       )}
 
       <div className="stats">
-        <StatCard label="总盈亏" value={fmtUsd(s?.totalPnl)} cls={trendClass(s?.totalPnl)}
-                  sub="已实现 + 浮动 + 资金费" />
-        <StatCard label="已实现" value={fmtUsd(s?.totalRealized)} cls={trendClass(s?.totalRealized)}
-                  sub={`含手续费 ${fmtUsd(s?.totalFee)}`} />
-        <StatCard label="浮动盈亏" value={fmtUsd(s?.totalUnrealized)} cls={trendClass(s?.totalUnrealized)}
-                  sub="按当前标记价" />
+        <StatCard label="已实现盈亏" value={fmtUsd(s?.totalRealized)} cls={trendClass(s?.totalRealized)}
+                  sub="平仓损益，已扣手续费" />
         <StatCard label="资金费" value={fmtUsd(s?.totalFunding)} cls={trendClass(s?.totalFunding)}
                   sub={s?.hasIncome ? '来自交易所流水' : '点同步后可见'} />
-        <StatCard label="总敞口" value={fmtUsd(s?.grossExposure)}
-                  sub={`净 ${fmtUsd(s?.netExposure)}`} />
-        <StatCard label="持仓数" value={String(s?.openCount ?? 0)}
-                  sub={`历史交易过 ${s?.symbolCount ?? 0} 个标的`} />
+        <StatCard label="手续费" value={fmtUsd(s?.totalFee)} cls="down"
+                  sub="累计支出" />
+        <StatCard label="落袋合计" value={fmtUsd((s?.totalRealized ?? 0) + (s?.totalFunding ?? 0))}
+                  cls={trendClass((s?.totalRealized ?? 0) + (s?.totalFunding ?? 0))}
+                  sub="已实现 + 资金费，不含浮盈" />
+        <StatCard label="交易标的" value={String(s?.symbolCount ?? 0)}
+                  sub={`当前持仓 ${s?.openCount ?? 0} 个`} />
       </div>
 
       <div className="row">
@@ -183,48 +180,6 @@ export default function Portfolio() {
           </div>
         </div>
 
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          当前持仓<span className="muted" style={{ fontWeight: 400 }}>{open.length}</span>
-        </div>
-        {open.length ? (
-          <table>
-            <thead>
-              <tr>
-                <SortHeader label="标的" sortKey="symbol" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} />
-                <SortHeader label="方向" sortKey="side" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} />
-                <SortHeader label="持仓量" sortKey="qty" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-                <SortHeader label="开仓均价" sortKey="avgCost" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-                <SortHeader label="标记价" sortKey="markPrice" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-                <SortHeader label="名义价值" sortKey="value" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-                <SortHeader label="浮动盈亏" sortKey="unrealized" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-                <SortHeader label="收益率" sortKey="unrealizedPct" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-                <SortHeader label="已实现" sortKey="realized" current={openSort.sortKey} dir={openSort.sortDir} onSort={openSort.toggle} right />
-              </tr>
-            </thead>
-            <tbody>
-              {openSort.sorted.map((p) => (
-                <tr key={p.symbol}>
-                  <td className="sym">
-                    <div className="sym-cell"><SymbolIcon symbol={p.symbol} />{p.symbol}</div>
-                  </td>
-                  <td><span className={`tag ${p.side.toLowerCase()}`}>{p.side === 'LONG' ? '多' : '空'}</span></td>
-                  <td className="right mono">{p.qty}</td>
-                  <td className="right mono">{fmtPrice(p.avgCost)}</td>
-                  <td className="right mono">{fmtPrice(p.markPrice)}</td>
-                  <td className="right mono">{fmtUsd(p.value)}</td>
-                  <td className={`right mono ${trendClass(p.unrealized)}`}>{fmtUsd(p.unrealized)}</td>
-                  <td className={`right mono ${trendClass(p.unrealizedPct)}`}>{fmtPct(p.unrealizedPct)}</td>
-                  <td className={`right mono ${trendClass(p.realized)}`}>{fmtUsd(p.realized)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty">暂无持仓。在下方录入交易，或配置 API secret 后从 Binance 同步。</div>
-        )}
       </div>
 
       {closed.length > 0 && (
@@ -362,7 +317,7 @@ export default function Portfolio() {
                     <td className={t.side === 'BUY' ? 'up' : 'down'}>
                       {t.side === 'BUY' ? '买入' : '卖出'}
                     </td>
-                    <td className="right mono">{t.qty}</td>
+                    <td className="right mono">{fmtQty(t.qty)}</td>
                     <td className="right mono">{fmtPrice(t.price)}</td>
                     <td className="right mono">{t.fee ? fmtUsd(t.fee) : '—'}</td>
                     <td className="muted">{t.note || '—'}</td>

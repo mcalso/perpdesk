@@ -5,7 +5,7 @@ import { SortHeader } from './SortHeader'
 import { SymbolIcon } from './SymbolIcon'
 import { useSort } from '../lib/useSort'
 import { api, type AccountOverview, type AccountStatus } from '../lib/api'
-import { fmtPct, fmtPrice, fmtUsd, trendClass } from '../lib/format'
+import { fmtPct, fmtPrice, fmtQty, fmtUsd, trendClass } from '../lib/format'
 
 const PIE_COLORS = ['#2962ff', '#26a69a', '#ff9800', '#ab47bc', '#ef5350',
                     '#26c6da', '#9ccc65', '#ffa726', '#5c6bc0', '#8d6e63']
@@ -175,7 +175,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                     </td>
                     <td><span className={`tag ${p.side.toLowerCase()}`}>
                       {p.side === 'LONG' ? '多' : '空'}</span></td>
-                    <td className="right mono">{p.qty}</td>
+                    <td className="right mono">{fmtQty(p.qty)}</td>
                     <td className="right mono">{fmtPrice(p.entryPrice)}</td>
                     <td className="right mono">{fmtPrice(p.markPrice)}</td>
                     <td className="right mono">{fmtUsd(p.notional)}</td>

@@ -11,6 +11,22 @@ export const fmtPrice = (v: number | null | undefined): string => {
   return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
+/**
+ * 持仓量/成交量。
+ *
+ * 逐笔累加会攒出浮点误差（104 变成 103.99999999999999，
+ * -409.13 变成 -409.13000000000005），显示前按有效位归整。
+ * 加密标的的量级跨度极大（BTC 0.001 到 SHIB 上亿），所以按绝对值定小数位。
+ */
+export const fmtQty = (v: number | null | undefined): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—'
+  const a = Math.abs(v)
+  const d = a >= 1000 ? 2 : a >= 1 ? 4 : 8
+  // toFixed 后去掉多余的 0，避免 121598.0000 这种
+  const fixed = Number(v.toFixed(d))
+  return fixed.toLocaleString('en-US', { maximumFractionDigits: d })
+}
+
 export const fmtUsd = (v: number | null | undefined, digits = 2): string => {
   if (v === null || v === undefined || Number.isNaN(v)) return '—'
   const sign = v < 0 ? '-' : ''
