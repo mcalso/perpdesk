@@ -165,23 +165,28 @@ def upsert_income(rows: list[tuple]) -> int:
     return cur.rowcount
 
 
-def income_totals() -> dict[str, dict[str, float]]:
-    """按 symbol 汇总各科目金额。"""
+def income_totals(since: int | None = None) -> dict[str, dict[str, float]]:
+    """按 symbol 汇总各科目金额。since 给定时只统计该时刻之后。"""
+    sql = "SELECT symbol, type, SUM(amount) AS total FROM income"
+    args: tuple = ()
+    if since:
+        sql += " WHERE ts >= ?"
+        args = (since,)
+    sql += " GROUP BY symbol, type"
     out: dict[str, dict[str, float]] = {}
-    for r in connect().execute(
-        "SELECT symbol, type, SUM(amount) AS total FROM income GROUP BY symbol, type"
-    ):
+    for r in connect().execute(sql, args):
         out.setdefault(r["symbol"], {})[r["type"]] = r["total"]
     return out
 
 
-def income_by_type() -> dict[str, float]:
-    return {
-        r["type"]: r["total"]
-        for r in connect().execute(
-            "SELECT type, SUM(amount) AS total FROM income GROUP BY type"
-        )
-    }
+def income_by_type(since: int | None = None) -> dict[str, float]:
+    sql = "SELECT type, SUM(amount) AS total FROM income"
+    args: tuple = ()
+    if since:
+        sql += " WHERE ts >= ?"
+        args = (since,)
+    sql += " GROUP BY type"
+    return {r["type"]: r["total"] for r in connect().execute(sql, args)}
 
 
 def income_symbols() -> list[str]:

@@ -9,6 +9,12 @@ import { useSort } from '../lib/useSort'
 import { api, type PortfolioSummary, type Trade } from '../lib/api'
 import { fmtDate, fmtPrice, fmtQty, fmtTime, fmtUsd, trendClass } from '../lib/format'
 
+// 历史盈亏的统计区间。null = 全部历史
+const RANGES: { v: number | null; label: string }[] = [
+  { v: 7, label: '7天' }, { v: 30, label: '30天' },
+  { v: 90, label: '90天' }, { v: 365, label: '1年' }, { v: null, label: '全部' },
+]
+
 function StatCard({ label, value, sub, cls }: {
   label: string; value: string; sub?: string; cls?: string
 }) {
@@ -28,6 +34,9 @@ export default function Portfolio() {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [showCsv, setShowCsv] = useState(false)
+  const [days, setDays] = useState<number | null>(null)
+  const [range, setRange] = useState<{ from: number | null; to: number | null }>(
+    { from: null, to: null })
   const [csv, setCsv] = useState('')
 
   const [form, setForm] = useState({
@@ -37,10 +46,10 @@ export default function Portfolio() {
 
   const reload = useCallback(async () => {
     try {
-      const [s, c, t] = await Promise.all([api.summary(), api.curve(), api.trades()])
-      setSum(s); setCurve(c.points); setTrades(t)
+      const [s, c, t] = await Promise.all([api.summary(days), api.curve(days), api.trades()])
+      setSum(s); setCurve(c.points); setTrades(t); setRange({ from: c.from, to: c.to })
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
-  }, [])
+  }, [days])
 
   useEffect(() => {
     reload()
@@ -120,7 +129,21 @@ export default function Portfolio() {
         <span className="muted" style={{ fontWeight: 400 }}>
           按成交流水回放，统计已落袋的损益；当前持仓与浮盈以上方交易所数据为准
         </span>
+        <div className="spacer" />
+        <div className="seg">
+          {RANGES.map((r) => (
+            <button key={r.label} className={days === r.v ? 'on' : ''} onClick={() => setDays(r.v)}>
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
+      {range.from && (
+        <div className="muted" style={{ fontSize: 11, marginTop: -8 }}>
+          统计区间：{fmtTime(range.from)} ~ {fmtTime(range.to || Date.now())}
+          {days ? '（区间损益，起点归零）' : '（全部历史，从第一笔成交起算）'}
+        </div>
+      )}
       {s?.hasIncome && Math.abs((s.totalRealized + s.totalFunding) - (s.exchangeRealized + s.exchangeCommission + s.totalFunding)) > 1 && (
         <div className="msg info">
           本地流水算出的已实现盈亏 {fmtUsd(s.totalRealized)}，交易所流水口径为{' '}
@@ -153,7 +176,8 @@ export default function Portfolio() {
         <div className="panel" style={{ flex: 1, minWidth: 0 }}>
           <div className="panel-head">已实现盈亏曲线
             <span className="muted" style={{ fontWeight: 400 }}>
-              逐笔累计，含手续费；浮盈不计入（历史时点用当前价回算会失真）
+              {days ? `最近 ${days} 天的区间损益` : '全部历史逐笔累计'}，含手续费；
+              浮盈不计入（历史时点用当前价回算会失真）
             </span>
           </div>
           <div className="panel-body" style={{ height: 260 }}>

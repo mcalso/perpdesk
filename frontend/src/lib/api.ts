@@ -68,6 +68,7 @@ export interface PortfolioSummary {
     openCount: number; symbolCount: number
     totalFunding: number; exchangeRealized: number; exchangeCommission: number
     hasIncome: boolean
+    days: number | null; rangeFrom: number | null
   }
   allocation: { symbol: string; value: number; weight: number; side: string }[]
 }
@@ -130,12 +131,15 @@ export const api = {
     req<{ inserted: number; failed: number; errors: { line: number; error: string }[] }>(
       '/api/portfolio/import', { method: 'POST', body: JSON.stringify({ csv_text }) }),
 
-  summary: () => req<PortfolioSummary>('/api/portfolio/summary'),
+  summary: (days?: number | null) =>
+    req<PortfolioSummary>(`/api/portfolio/summary${days ? `?days=${days}` : ''}`),
 
   accountStatus: () => req<AccountStatus>('/api/account/status'),
   accountOverview: () => req<AccountOverview>('/api/account/overview'),
   syncTrades: (days = 30) =>
     req<{ inserted: number; skipped: number; symbols: string[] }>(
       `/api/account/sync-trades?days=${days}`, { method: 'POST' }),
-  curve: () => req<{ points: { t: number; realized: number }[] }>('/api/portfolio/curve'),
+  curve: (days?: number | null) =>
+    req<{ points: { t: number; realized: number }[]; from: number | null; to: number | null }>(
+      `/api/portfolio/curve${days ? `?days=${days}` : ''}`),
 }

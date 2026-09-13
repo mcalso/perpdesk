@@ -3,7 +3,7 @@ import csv
 import io
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from .. import db, pnl
@@ -108,15 +108,22 @@ def _parse_ts(s: str) -> int:
     raise ValueError(f"无法解析时间: {s}")
 
 
+def _since(days: int | None) -> int | None:
+    """天数转起始时间戳。days 为空表示全部历史。"""
+    return None if not days else int((time.time() - days * 86400) * 1000)
+
+
 @router.get("/summary")
-async def summary() -> dict:
+async def summary(days: int | None = Query(None, ge=1, le=3650,
+                                           description="只统计最近 N 天，留空为全部历史")) -> dict:
     trades = db.list_trades()
-    result = pnl.build_summary(trades, _marks())
+    since = _since(days)
+    result = pnl.build_summary(trades, _marks(), since=since)
 
     # 资金费单列：它不出现在成交记录里，但对长期/高杠杆持仓是实打实的损益，
     # 漏掉会让统计系统性偏乐观。已实现盈亏仍只算平仓部分，两者不混。
-    per_symbol = db.income_totals()
-    totals = db.income_by_type()
+    per_symbol = db.income_totals(since)
+    totals = db.income_by_type(since)
     for p in result["positions"]:
         p["funding"] = (per_symbol.get(p["symbol"]) or {}).get("FUNDING_FEE", 0.0)
 
@@ -128,14 +135,24 @@ async def summary() -> dict:
     s["exchangeCommission"] = totals.get("COMMISSION", 0.0)
     s["hasIncome"] = bool(totals)
 
+    s["days"] = days
+    s["rangeFrom"] = since
     result["allocation"] = _allocation(result["positions"])
     return result
 
 
 @router.get("/curve")
-async def curve() -> dict:
+async def curve(days: int | None = Query(None, ge=1, le=3650)) -> dict:
+    """已实现盈亏曲线。days 给定时输出区间损益（起点归零）。"""
     trades = db.list_trades()
-    return {"points": pnl.equity_curve(trades)}
+    since = _since(days)
+    points = pnl.equity_curve(trades, since=since)
+    return {
+        "points": points,
+        "days": days,
+        "from": points[0]["t"] if points else None,
+        "to": points[-1]["t"] if points else None,
+    }
 
 
 def _allocation(positions: list[dict]) -> list[dict]:
