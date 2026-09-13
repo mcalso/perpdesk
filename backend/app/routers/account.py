@@ -92,7 +92,7 @@ async def sync_trades(
 
     # 3) 成交明细（按 tradeId 去重，note 里存 binance:<tradeId>）
     existing = db.existing_trade_notes()
-    rows, skipped, failed = [], 0, []
+    rows, backfill, skipped, failed = [], [], 0, []
     for i, sym in enumerate(sorted(wanted)):
         try:
             fills = await account.user_trades_all(sym, start_ms)
@@ -103,6 +103,9 @@ async def sync_trades(
             tag = f"binance:{f['tradeId']}"
             if tag in existing:
                 skipped += 1
+                # 已存在的也要回填盈亏字段：早期同步没存，不补就会造成
+                # 同一标的一部分用交易所口径、一部分用本地回放的混合结果
+                backfill.append((f["realizedPnl"], tag))
                 continue
             existing.add(tag)
             rows.append((f["symbol"], f["side"], f["qty"], f["price"], f["fee"],
@@ -111,8 +114,10 @@ async def sync_trades(
             await asyncio.sleep(1.0)
 
     inserted = db.add_trades_bulk(rows) if rows else 0
+    filled = db.backfill_realized_pnl(backfill) if backfill else 0
     return {
         "inserted": inserted,
+        "backfilled": filled,
         "skipped": skipped,
         "incomeInserted": income_new,
         "symbols": sorted(wanted),

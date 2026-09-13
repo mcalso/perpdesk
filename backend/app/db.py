@@ -166,6 +166,21 @@ def add_trades_bulk(rows: list[tuple]) -> int:
     return cur.rowcount
 
 
+def backfill_realized_pnl(rows: list[tuple]) -> int:
+    """回填已有成交的交易所盈亏。rows: (realized_pnl, note)
+
+    早期同步只存了成交本身没存盈亏字段，若不回填，同一标的会出现
+    一部分用交易所口径、另一部分用本地回放的混合计算，结果没有意义。
+    """
+    conn = connect()
+    cur = conn.executemany(
+        "UPDATE trades SET realized_pnl = ? WHERE note = ? AND realized_pnl IS NULL",
+        rows,
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 def existing_trade_notes() -> set[str]:
     """已同步成交的去重标记（note 形如 binance:<tradeId>）。"""
     return {
