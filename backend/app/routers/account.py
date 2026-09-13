@@ -124,7 +124,7 @@ async def sync_trades(
 
 @router.post("/import-history")
 async def import_history(
-    days: int = Query(400, ge=1, le=1000, description="往前追溯多少天"),
+    days: int = Query(365, ge=1, le=365, description="往前追溯多少天（交易所限制单次最多 365 天）"),
     wait: int = Query(180, ge=10, le=600, description="最多等待导出生成的秒数"),
 ) -> dict:
     """用异步导出补全历史成交。
