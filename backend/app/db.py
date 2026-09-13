@@ -23,7 +23,11 @@ CREATE TABLE IF NOT EXISTS trades (
     fee        REAL NOT NULL DEFAULT 0,
     traded_at  INTEGER NOT NULL,
     note       TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- 交易所给的每笔已实现盈亏。优先用它而不是本地回放：
+    -- 账户可能用过双向持仓模式（同一标的同时持多空），净额加权平均法算不对。
+    -- 手工录入的成交没有这个值，留 NULL，由回放补算。
+    realized_pnl REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_symbol_time ON trades (symbol, traded_at);
@@ -54,6 +58,7 @@ def connect() -> sqlite3.Connection:
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
         _conn.executescript(SCHEMA)
+        _migrate(_conn)
         _seed_watchlist(_conn)
         _conn.commit()
     return _conn
@@ -64,6 +69,13 @@ def close() -> None:
     if _conn is not None:
         _conn.close()
         _conn = None
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """轻量迁移：老库缺 realized_pnl 列时补上。"""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
+    if "realized_pnl" not in cols:
+        conn.execute("ALTER TABLE trades ADD COLUMN realized_pnl REAL")
 
 
 def _seed_watchlist(conn: sqlite3.Connection) -> None:
@@ -139,16 +151,27 @@ def add_trade(
 
 
 def add_trades_bulk(rows: list[tuple]) -> int:
-    """rows: (symbol, side, qty, price, fee, traded_at, note)"""
+    """rows: (symbol, side, qty, price, fee, traded_at, note[, realized_pnl])"""
     conn = connect()
     now = int(time.time() * 1000)
+    norm = [(r if len(r) == 8 else (*r, None)) for r in
+            [(*x, None) if len(x) == 7 else x for x in rows]]
     cur = conn.executemany(
-        """INSERT INTO trades (symbol, side, qty, price, fee, traded_at, note, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        [(*r, now) for r in rows],
+        """INSERT INTO trades
+           (symbol, side, qty, price, fee, traded_at, note, realized_pnl, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [(*r, now) for r in norm],
     )
     conn.commit()
     return cur.rowcount
+
+
+def existing_trade_notes() -> set[str]:
+    """已同步成交的去重标记（note 形如 binance:<tradeId>）。"""
+    return {
+        r["note"] for r in connect().execute(
+            "SELECT note FROM trades WHERE note LIKE 'binance:%'")
+    }
 
 
 # ---------- income ----------

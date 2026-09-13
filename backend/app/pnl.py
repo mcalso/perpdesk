@@ -32,6 +32,10 @@ def apply_trade(books: dict[str, dict], t: dict) -> float:
     price = t["price"]
     gain = -t["fee"]                      # 本笔增量：先计手续费
 
+    # 交易所若给了这笔的已实现盈亏，一律以它为准：账户可能用过双向持仓模式
+    # （同一标的同时持多空），本地的净额加权平均法在那种情况下算不出正确结果。
+    exchange_pnl = t.get("realized_pnl")
+
     b["fee"] += t["fee"]
     b["realized"] -= t["fee"]
     b["tradeCount"] += 1
@@ -49,14 +53,19 @@ def apply_trade(books: dict[str, dict], t: dict) -> float:
     else:
         closed = min(abs(pos), abs(delta))
         pnl = closed * (price - b["avgCost"]) * _sign(pos)
-        b["realized"] += pnl
-        gain += pnl
+        if exchange_pnl is None:
+            b["realized"] += pnl
+            gain += pnl
         remain = pos + delta
         if _sign(remain) != 0 and _sign(remain) != _sign(pos):
             b["avgCost"] = price          # 反手，新仓成本就是本次成交价
         elif remain == 0:
             b["avgCost"] = 0.0
         b["qty"] = remain
+
+    if exchange_pnl is not None:
+        b["realized"] += exchange_pnl
+        gain += exchange_pnl
 
     if abs(b["qty"]) < 1e-12:             # 浮点残渣归零
         b["qty"] = 0.0
@@ -141,6 +150,36 @@ def build_summary(trades: list[dict], marks: dict[str, float],
             "symbolCount": len(positions),
         },
     }
+
+
+def downsample(points: list[dict], limit: int) -> list[dict]:
+    """把曲线抽稀到 limit 个点以内。
+
+    图表宽度撑死几百像素，几千个点纯属浪费带宽与渲染时间（实测 8105 个点
+    约 400KB，在 3Mbps 的小机器上光传输就要 1 秒多）。
+
+    分段取样时保留每段的**极值**而不只是段末值：盈亏曲线的峰值与谷底
+    直接对应最大回撤，抹掉它们会让图形失真。
+    """
+    if limit <= 0 or len(points) <= limit:
+        return points
+    buckets = max(1, limit // 3)          # 每段最多贡献首/极值/末三个点
+    size = len(points) / buckets
+    out: list[dict] = []
+    for i in range(buckets):
+        seg = points[int(i * size):int((i + 1) * size)] or []
+        if not seg:
+            continue
+        lo = min(seg, key=lambda p: p["realized"])
+        hi = max(seg, key=lambda p: p["realized"])
+        picked = sorted({id(lo): lo, id(hi): hi, id(seg[-1]): seg[-1]}.values(),
+                        key=lambda p: p["t"])
+        out.extend(picked)
+    if out and out[0]["t"] != points[0]["t"]:
+        out.insert(0, points[0])
+    if out and out[-1]["t"] != points[-1]["t"]:
+        out.append(points[-1])
+    return out
 
 
 def equity_curve(trades: list[dict], since: int | None = None) -> list[dict]:

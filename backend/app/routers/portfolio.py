@@ -142,16 +142,27 @@ async def summary(days: int | None = Query(None, ge=1, le=3650,
 
 
 @router.get("/curve")
-async def curve(days: int | None = Query(None, ge=1, le=3650)) -> dict:
-    """已实现盈亏曲线。days 给定时输出区间损益（起点归零）。"""
+async def curve(
+    days: int | None = Query(None, ge=1, le=3650),
+    points: int = Query(600, ge=50, le=5000, description="最多返回多少个点，0 表示不抽稀"),
+) -> dict:
+    """已实现盈亏曲线。days 给定时输出区间损益（起点归零）。
+
+    默认抽稀到 600 个点：原始曲线可达数千点（约数百 KB），传输与渲染都很慢，
+    而抽稀保留了每段极值，视觉上看不出差别。
+    """
     trades = db.list_trades()
     since = _since(days)
-    points = pnl.equity_curve(trades, since=since)
+    full = pnl.equity_curve(trades, since=since)
+    shown = pnl.downsample(full, points) if points else full
     return {
-        "points": points,
+        "points": shown,
         "days": days,
-        "from": points[0]["t"] if points else None,
-        "to": points[-1]["t"] if points else None,
+        "total": len(full),
+        "sampled": len(full) != len(shown),
+        "from": full[0]["t"] if full else None,
+        "to": full[-1]["t"] if full else None,
+        "final": full[-1]["realized"] if full else 0.0,
     }
 
 

@@ -91,9 +91,7 @@ async def sync_trades(
                 "symbols": [], "note": "这段时间内没有任何交易记录"}
 
     # 3) 成交明细（按 tradeId 去重，note 里存 binance:<tradeId>）
-    existing = {
-        t["note"] for t in db.list_trades() if t["note"].startswith("binance:")
-    }
+    existing = db.existing_trade_notes()
     rows, skipped, failed = [], 0, []
     for i, sym in enumerate(sorted(wanted)):
         try:
@@ -108,7 +106,7 @@ async def sync_trades(
                 continue
             existing.add(tag)
             rows.append((f["symbol"], f["side"], f["qty"], f["price"], f["fee"],
-                         f["traded_at"], tag))
+                         f["traded_at"], tag, f["realizedPnl"]))
         if i % 8 == 7:                 # 节流，避免瞬时打满权重
             await asyncio.sleep(1.0)
 
@@ -121,4 +119,65 @@ async def sync_trades(
         "symbolCount": len(wanted),
         "days": days,
         "failed": failed[:10],
+    }
+
+
+@router.post("/import-history")
+async def import_history(
+    days: int = Query(400, ge=1, le=1000, description="往前追溯多少天"),
+    wait: int = Query(180, ge=10, le=600, description="最多等待导出生成的秒数"),
+) -> dict:
+    """用异步导出补全历史成交。
+
+    `sync-trades` 只能覆盖 userTrades 的保留期，更早的成交必须走这个接口。
+    交易所每月仅允许 5 次导出申请，所以它是手动触发的，不要做成定时任务。
+    """
+    _guard()
+    now_ms = int(time.time() * 1000)
+    start_ms = now_ms - days * 86400 * 1000
+
+    try:
+        download_id = await account.request_trade_export(start_ms, now_ms)
+    except Exception as exc:
+        raise HTTPException(502, f"申请导出失败（每月限 5 次）：{exc}") from exc
+    if not download_id:
+        raise HTTPException(502, "交易所未返回 downloadId")
+
+    url = None
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        await asyncio.sleep(6)
+        try:
+            url = await account.get_export_url(download_id)
+        except Exception as exc:
+            raise HTTPException(502, f"查询导出状态失败：{exc}") from exc
+        if url:
+            break
+    if not url:
+        return {"ok": False, "downloadId": download_id,
+                "note": f"导出仍在生成，稍后用同一个 downloadId 重试即可（不消耗新的配额）"}
+
+    raw = await account.download_export(url)
+    fills = account.parse_trade_export(raw)
+    existing = db.existing_trade_notes()
+    rows, skipped = [], 0
+    for f in fills:
+        tag = f"binance:{f['tradeId']}"
+        if tag in existing:
+            skipped += 1
+            continue
+        existing.add(tag)
+        rows.append((f["symbol"], f["side"], f["qty"], f["price"], f["fee"],
+                     f["traded_at"], tag, f["realizedPnl"]))
+    inserted = db.add_trades_bulk(rows) if rows else 0
+    span = (fills[0]["traded_at"], fills[-1]["traded_at"]) if fills else (None, None)
+    return {
+        "ok": True,
+        "parsed": len(fills),
+        "inserted": inserted,
+        "skipped": skipped,
+        "symbols": len({f["symbol"] for f in fills}),
+        "from": span[0],
+        "to": span[1],
+        "hedgeMode": any(f["positionSide"] in ("LONG", "SHORT") for f in fills),
     }

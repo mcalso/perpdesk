@@ -323,3 +323,75 @@ class AccountCache:
         }
 
 cache = AccountCache()
+
+
+# ---------- 历史成交导出（超出 userTrades 保留期的唯一途径） ----------
+
+async def request_trade_export(start_ms: int, end_ms: int) -> str:
+    """申请异步导出成交历史，返回 downloadId。
+
+    为什么需要它：`userTrades` 即便用 fromId=0 也只覆盖一段保留期，
+    更早的成交查不到（实测账户 2025-10 的成交在 userTrades 里完全取不到，
+    fromId=0 返回的是保留期内的最早一笔，很容易误以为那就是账户起点）。
+    异步导出不需要指定 symbol，也能覆盖已下架的合约。
+
+    注意：该接口权重高且**每月仅允许 5 次**，不要放进定时任务。
+    """
+    data = await _signed_get("/fapi/v1/trade/asyn",
+                             {"startTime": start_ms, "endTime": end_ms})
+    return str(data.get("downloadId") or "")
+
+
+async def get_export_url(download_id: str) -> str | None:
+    """查询导出任务；未完成返回 None。"""
+    data = await _signed_get("/fapi/v1/trade/asyn/id", {"downloadId": download_id})
+    if data.get("status") == "completed" and data.get("url"):
+        return data["url"]
+    return None
+
+
+def parse_trade_export(raw: bytes) -> list[dict]:
+    """解析导出的 ZIP/CSV。
+
+    导出的字段与 userTrades 不同：时间是 UTC 字符串、手续费带币种后缀
+    （"0.0048 USDT"）、盈亏可能是科学计数法（"0E-8"），且带 Position Side ——
+    账户用过双向持仓模式时同一标的会同时有 LONG/SHORT 记录。
+    """
+    import csv
+    import io
+    import zipfile
+    from datetime import datetime, timezone
+
+    if raw[:2] == b"PK":
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            text = z.read(z.namelist()[0]).decode("utf-8-sig")
+    else:
+        text = raw.decode("utf-8-sig", "replace")
+
+    out = []
+    for r in csv.DictReader(io.StringIO(text)):
+        try:
+            ts = int(datetime.strptime(r["Time(UTC)"], "%Y-%m-%d %H:%M:%S")
+                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+            out.append({
+                "symbol": r["Symbol"],
+                "side": "BUY" if r["Side"].upper() == "BUY" else "SELL",
+                "qty": abs(float(r["Quantity"])),
+                "price": float(r["Price"]),
+                "fee": float(r["Fee"].split()[0]) if r.get("Fee") else 0.0,
+                "realizedPnl": float(r.get("Realized Profit") or 0),
+                "traded_at": ts,
+                "tradeId": int(r["Trade Id"]),
+                "positionSide": r.get("Position Side", ""),
+            })
+        except (KeyError, ValueError):
+            continue
+    return sorted(out, key=lambda x: x["traded_at"])
+
+
+async def download_export(url: str) -> bytes:
+    async with httpx.AsyncClient(timeout=120, trust_env=False,
+                                 follow_redirects=True) as c:
+        resp = await c.get(url)
+        resp.raise_for_status()
+        return resp.content
