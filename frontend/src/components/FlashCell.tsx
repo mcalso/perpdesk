@@ -5,6 +5,8 @@ interface Props {
   value: number | null | undefined
   className?: string
   title?: string
+  /** 窄屏卡片视图下显示在数值左侧的字段名，见 styles.css 的 .cards */
+  label?: string
   children: ReactNode
 }
 
@@ -15,7 +17,7 @@ interface Props {
  * 每行两个闪烁格，用 state 会在每次报价跳动时多触发 200 次渲染。
  * 这里只改 className，React 完全不参与。
  */
-export function FlashCell({ value, className = '', title, children }: Props) {
+export function FlashCell({ value, className = '', title, label, children }: Props) {
   const ref = useRef<HTMLTableCellElement>(null)
   const prev = useRef(value)
 
@@ -32,5 +34,9 @@ export function FlashCell({ value, className = '', title, children }: Props) {
     el.classList.add(value > before ? 'flash-up' : 'flash-down')
   }, [value])
 
-  return <td ref={ref} className={className} title={title}>{children}</td>
+  return (
+    <td ref={ref} className={className} title={title} data-label={label}>
+      {children}
+    </td>
+  )
 }

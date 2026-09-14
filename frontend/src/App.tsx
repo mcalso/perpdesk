@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { api, type HubStatus } from './lib/api'
-import Market from './pages/Market'
-import Chart from './pages/Chart'
-import Portfolio from './pages/Portfolio'
 
 function StatusChip() {
   const [s, setS] = useState<HubStatus | null>(null)
@@ -50,19 +47,18 @@ export default function App() {
       <header className="topbar">
         <div className="brand">trad<span>view</span></div>
         <nav className="nav">
-          <NavLink to="/market" className={({ isActive }) => (isActive ? 'active' : '')}>行情看板</NavLink>
-          <NavLink to="/chart" className={({ isActive }) => (isActive ? 'active' : '')}>图表分析</NavLink>
-          <NavLink to="/portfolio" className={({ isActive }) => (isActive ? 'active' : '')}>持仓盈亏</NavLink>
+          {/* viewTransition：切页时走浏览器原生的交叉淡入淡出。
+              不支持的浏览器会直接跳转，不会报错 */}
+          <NavLink to="/market" viewTransition
+                   className={({ isActive }) => (isActive ? 'active' : '')}>行情看板</NavLink>
+          <NavLink to="/chart" viewTransition
+                   className={({ isActive }) => (isActive ? 'active' : '')}>图表分析</NavLink>
+          <NavLink to="/portfolio" viewTransition
+                   className={({ isActive }) => (isActive ? 'active' : '')}>持仓盈亏</NavLink>
         </nav>
         <StatusChip />
       </header>
-      <Routes>
-        <Route path="/" element={<Navigate to="/market" replace />} />
-        <Route path="/market" element={<Market />} />
-        <Route path="/chart" element={<Chart />} />
-        <Route path="/chart/:symbol" element={<Chart />} />
-        <Route path="/portfolio" element={<Portfolio />} />
-      </Routes>
+      <Outlet />
     </div>
   )
 }

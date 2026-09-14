@@ -435,3 +435,98 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
     transition-duration: .01ms !important;
   }
 }
+
+/* ---------- 骨架屏 ---------- */
+.skeleton-table { padding: 6px 13px 14px; }
+.skeleton-row {
+  display: grid;
+  grid-template-columns: repeat(var(--sk-cols, 6), 1fr);
+  gap: 12px; align-items: center;
+  height: 34px;
+}
+.skeleton-row .skeleton { height: 9px; }
+/* 越往下越淡，暗示"还有更多在加载"而不是一堵墙 */
+.skeleton-row:nth-child(n+5) { opacity: .7; }
+.skeleton-row:nth-child(n+8) { opacity: .45; }
+.skeleton-row:nth-child(n+10) { opacity: .25; }
+.skeleton-chart { width: 100%; height: 100%; min-height: 160px; }
+
+/* ---------- 窄屏：宽表转卡片 ----------
+ * 持仓表一行 12 列、行情表 7 列，在手机上横向滚动基本没法看。
+ * 这里把 <table class="cards"> 整体改成块级布局，每行变成一张卡，
+ * 字段名从 td 的 data-label 里长出来。不需要复制一份 JSX。 */
+@media (max-width: 760px) {
+  .cards thead { display: none; }
+  .cards, .cards tbody, .cards tr, .cards td { display: block; width: 100%; }
+
+  .cards tr {
+    position: relative;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    margin-bottom: 10px;
+    padding-bottom: 4px;
+    overflow: hidden;
+  }
+  .cards tr:hover { box-shadow: none; }
+
+  .cards td {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; padding: 6px 13px;
+    border: none; white-space: normal; text-align: right;
+  }
+  .cards td::before {
+    content: attr(data-label);
+    color: var(--text-dim); font-size: var(--fs-sm); letter-spacing: .3px;
+    flex-shrink: 0; text-align: left;
+  }
+  /* 没有 data-label 的格子（分隔用的空 th/td）整格收起，不然会留一条空行 */
+  .cards td:not([data-label]):not(.card-title):not(.card-corner):empty { display: none; }
+
+  /* 标的名做卡头 */
+  .cards td.card-title {
+    justify-content: flex-start;
+    padding: 10px 13px;
+    margin-bottom: 4px;
+    background: linear-gradient(180deg, rgba(41, 98, 255, .10), transparent);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--fs-lg);
+  }
+  .cards td.card-title::before { content: none; }
+
+  /* 自选星标钉在卡片右上角，不单占一行 */
+  .cards td.card-corner {
+    position: absolute; top: 6px; right: 8px;
+    width: auto; padding: 0; z-index: 1;
+  }
+  .cards td.card-corner::before { content: none; }
+
+  /* 卡片模式下表格不再需要限高滚动 */
+  .table-scroll { max-height: none; }
+  /* 持仓分布饼图在窄屏挤成一条，给它一个下限 */
+  .row > .panel { min-width: 0; }
+}
+
+/* ---------- 页面切换过渡 ----------
+ * 浏览器原生 View Transitions API，零依赖。不支持的浏览器直接跳转，
+ * 不做任何降级处理也不会出错。 */
+::view-transition-old(root) {
+  animation: vt-out .16s cubic-bezier(.4, 0, 1, 1) both;
+}
+::view-transition-new(root) {
+  animation: vt-in .26s cubic-bezier(0, 0, .2, 1) both;
+}
+@keyframes vt-out {
+  to { opacity: 0; transform: translateY(-6px); }
+}
+@keyframes vt-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* 顶栏单独起一个 view-transition-name，把它从 root 快照里摘出来 ——
+   否则切页时整条导航栏跟着淡入淡出，反而显得页面在闪 */
+.topbar { view-transition-name: topbar; }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}

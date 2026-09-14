@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FlashCell } from '../components/FlashCell'
 import { SortHeader } from '../components/SortHeader'
+import { TableSkeleton } from '../components/TableSkeleton'
 import { SymbolIcon } from '../components/SymbolIcon'
 import { api, type Ticker } from '../lib/api'
 import { useSort } from '../lib/useSort'
@@ -155,10 +156,10 @@ export default function Market() {
         </div>
         {err && <div className="msg err" style={{ margin: 12 }}>{err}</div>}
         {loading ? (
-          <div className="empty">加载中…</div>
+          <TableSkeleton rows={12} cols={7} />
         ) : (
           <div className="table-scroll">
-            <table>
+            <table className="cards">
               <thead>
                 <tr>
                   <th style={{ width: 36 }} />
@@ -172,8 +173,8 @@ export default function Market() {
               </thead>
               <tbody>
                 {pageRows.map((r) => (
-                  <tr key={r.symbol} className="clickable" onClick={() => nav(`/chart/${r.symbol}`)}>
-                    <td>
+                  <tr key={r.symbol} className="clickable" onClick={() => nav(`/chart/${r.symbol}`, { viewTransition: true })}>
+                    <td className="card-corner">
                       <button
                         className="ghost sm"
                         title={watch.has(r.symbol) ? '从自选移除' : '加入自选'}
@@ -183,7 +184,7 @@ export default function Market() {
                         {watch.has(r.symbol) ? '★' : '☆'}
                       </button>
                     </td>
-                    <td className="sym">
+                    <td className="sym card-title">
                       <div className="sym-cell">
                         <SymbolIcon symbol={r.symbol} />
                         <span className="sym-base">{r.base}</span>
@@ -193,17 +194,20 @@ export default function Market() {
                         )}
                       </div>
                     </td>
-                    <FlashCell value={r.last} className="right mono">
+                    <FlashCell value={r.last} className="right mono" label="最新价">
                       {fmtPrice(r.last)}
                     </FlashCell>
-                    <FlashCell value={r.chgPct} className={`right mono ${trendClass(r.chgPct)}`}>
+                    <FlashCell value={r.chgPct} className={`right mono ${trendClass(r.chgPct)}`}
+                               label="24h 涨跌">
                       {fmtPct(r.chgPct)}
                     </FlashCell>
-                    <td className="right mono">${fmtCompact(r.quoteVolume)}</td>
-                    <td className={`right mono ${trendClass(r.fundingRate)}`}>
+                    <td className="right mono" data-label="24h 成交额">
+                      ${fmtCompact(r.quoteVolume)}
+                    </td>
+                    <td className={`right mono ${trendClass(r.fundingRate)}`} data-label="资金费率">
                       {(r.fundingRate * 100).toFixed(4)}%
                     </td>
-                    <td className="right">
+                    <td className="right" data-label="状态">
                       {r.live ? <span className="tag live">实时</span> : <span className="tag">30s</span>}
                     </td>
                   </tr>

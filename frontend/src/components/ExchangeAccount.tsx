@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { AnimatedNumber } from './AnimatedNumber'
 import { FlashCell } from './FlashCell'
 import { SortHeader } from './SortHeader'
 import { SymbolIcon } from './SymbolIcon'
+import { TableSkeleton } from './TableSkeleton'
 import { useSort } from '../lib/useSort'
 import { api, type AccountOverview, type AccountStatus } from '../lib/api'
 import { fmtPct, fmtPrice, fmtQty, fmtUsd, trendClass } from '../lib/format'
@@ -95,19 +97,23 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
       <div className="stats">
         <div className="stat hero">
           <div className="label">账户权益</div>
-          <div className="value">{fmtUsd(data?.equity)}</div>
+          <div className="value">
+            <AnimatedNumber value={data?.equity} format={fmtUsd} />
+          </div>
           <div className="sub">钱包 {fmtUsd(usdt?.balance)} · 可用 {fmtUsd(usdt?.available)}</div>
         </div>
         <div className="stat">
           <div className="label">交易所浮动盈亏</div>
           <div className={`value ${trendClass(data?.totalUnrealized)}`}>
-            {fmtUsd(data?.totalUnrealized)}
+            <AnimatedNumber value={data?.totalUnrealized} format={fmtUsd} />
           </div>
           <div className="sub">{data?.positions.length ?? 0} 个持仓</div>
         </div>
         <div className="stat">
           <div className="label">名义敞口</div>
-          <div className="value">{fmtUsd(data?.grossNotional)}</div>
+          <div className="value">
+            <AnimatedNumber value={data?.grossNotional} format={fmtUsd} />
+          </div>
           <div className="sub">
             {data && usdt && usdt.balance > 0
               ? `${(data.grossNotional / usdt.balance).toFixed(2)}x 杠杆率`
@@ -144,7 +150,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
         {err && <div className="msg err" style={{ margin: 12 }}>{err}</div>}
         {syncMsg && <div className="msg info" style={{ margin: 12 }}>{syncMsg}</div>}
         {data?.positions.length ? (
-          <table>
+          <table className="cards">
             <thead>
               <tr>
                 <SortHeader label="标的" sortKey="symbol" current={sortKey} dir={sortDir} onSort={toggle} />
@@ -167,22 +173,22 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                 const near = p.liqDistPct !== null && p.liqDistPct < 15
                 return (
                   <tr key={p.symbol} className="clickable"
-                      onClick={() => nav(`/chart/${p.symbol}`)}>
-                    <td className="sym">
+                      onClick={() => nav(`/chart/${p.symbol}`, { viewTransition: true })}>
+                    <td className="sym card-title">
                       <div className="sym-cell">
                         <SymbolIcon symbol={p.symbol} />
                         {p.symbol}
                       </div>
                     </td>
-                    <td><span className={`tag ${p.side.toLowerCase()}`}>
+                    <td data-label="方向"><span className={`tag ${p.side.toLowerCase()}`}>
                       {p.side === 'LONG' ? '多' : '空'}</span></td>
-                    <td className="right mono">{fmtQty(p.qty)}</td>
-                    <td className="right mono">{fmtPrice(p.entryPrice)}</td>
-                    <FlashCell value={p.markPrice} className="right mono">
+                    <td className="right mono" data-label="持仓量">{fmtQty(p.qty)}</td>
+                    <td className="right mono" data-label="开仓价">{fmtPrice(p.entryPrice)}</td>
+                    <FlashCell value={p.markPrice} className="right mono" label="标记价">
                       {fmtPrice(p.markPrice)}
                     </FlashCell>
-                    <td className="right mono">{fmtUsd(p.notional)}</td>
-                    <td className="right">
+                    <td className="right mono" data-label="名义价值">{fmtUsd(p.notional)}</td>
+                    <td className="right" data-label="占比">
                       <div className="weight-cell">
                         <div className="weight-track">
                           <div className="weight-bar" style={{ width: `${Math.min(p.weight, 100)}%` }} />
@@ -190,18 +196,20 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                         <span className="mono">{p.weight.toFixed(1)}%</span>
                       </div>
                     </td>
-                    <FlashCell value={p.unrealized} className={`right mono ${trendClass(p.unrealized)}`}>
+                    <FlashCell value={p.unrealized} className={`right mono ${trendClass(p.unrealized)}`}
+                               label="浮动盈亏">
                       {fmtUsd(p.unrealized)}
                     </FlashCell>
-                    <FlashCell value={p.pnlPct} className={`right mono ${trendClass(p.pnlPct)}`}>
+                    <FlashCell value={p.pnlPct} className={`right mono ${trendClass(p.pnlPct)}`}
+                               label="收益率">
                       {fmtPct(p.pnlPct)}
                     </FlashCell>
-                    <td className="right mono">{p.leverage}x</td>
-                    <td className={`right mono ${near ? 'down' : 'muted'}`}
+                    <td className="right mono" data-label="杠杆">{p.leverage}x</td>
+                    <td className={`right mono ${near ? 'down' : 'muted'}`} data-label="距强平"
                         title={near ? '距强平价不足 15%' : ''}>
                       {p.liqDistPct !== null ? `${p.liqDistPct.toFixed(1)}%` : '—'}
                     </td>
-                    <td className={`right mono ${near ? 'down' : 'muted'}`}>
+                    <td className={`right mono ${near ? 'down' : 'muted'}`} data-label="强平价">
                       {p.liquidationPrice > 0 ? fmtPrice(p.liquidationPrice) : '—'}
                     </td>
                   </tr>
@@ -210,7 +218,8 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
             </tbody>
           </table>
         ) : (
-          <div className="empty">{data ? '当前无持仓' : '加载中…'}</div>
+          data ? <div className="empty">当前无持仓</div>
+               : <TableSkeleton rows={6} cols={8} />
         )}
       </div>
 

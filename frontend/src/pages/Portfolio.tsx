@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
+import { AnimatedNumber } from '../components/AnimatedNumber'
 import { ExchangeAccount } from '../components/ExchangeAccount'
 import { SortHeader } from '../components/SortHeader'
 import { SymbolIcon } from '../components/SymbolIcon'
+import { TableSkeleton } from '../components/TableSkeleton'
 import { useSort } from '../lib/useSort'
 import { api, type PortfolioSummary, type Trade } from '../lib/api'
 import { fmtDate, fmtPrice, fmtQty, fmtTime, fmtUsd, trendClass } from '../lib/format'
@@ -15,13 +17,21 @@ const RANGES: { v: number | null; label: string }[] = [
   { v: 90, label: '90天' }, { v: 365, label: '1年' }, { v: null, label: '全部' },
 ]
 
-function StatCard({ label, value, sub, cls, hero }: {
-  label: string; value: string; sub?: string; cls?: string; hero?: boolean
+function StatCard({ label, value, format, sub, cls, hero }: {
+  label: string
+  /** 传 number 并给 format 时数字会滚动；传 string 则直接显示 */
+  value: string | number | null | undefined
+  format?: (v: number | null | undefined) => string
+  sub?: string; cls?: string; hero?: boolean
 }) {
   return (
     <div className={hero ? 'stat hero' : 'stat'}>
       <div className="label">{label}</div>
-      <div className={`value ${cls || ''}`}>{value}</div>
+      <div className={`value ${cls || ''}`}>
+        {format
+          ? <AnimatedNumber value={value as number | null | undefined} format={format} />
+          : value}
+      </div>
       {sub && <div className="sub">{sub}</div>}
     </div>
   )
@@ -170,13 +180,15 @@ export default function Portfolio() {
       )}
 
       <div className="stats">
-        <StatCard label="已实现盈亏" value={fmtUsd(s?.totalRealized)} cls={trendClass(s?.totalRealized)}
-                  sub="平仓损益，已扣手续费" hero />
-        <StatCard label="资金费" value={fmtUsd(s?.totalFunding)} cls={trendClass(s?.totalFunding)}
+        <StatCard label="已实现盈亏" value={s?.totalRealized} format={fmtUsd}
+                  cls={trendClass(s?.totalRealized)} sub="平仓损益，已扣手续费" hero />
+        <StatCard label="资金费" value={s?.totalFunding} format={fmtUsd}
+                  cls={trendClass(s?.totalFunding)}
                   sub={s?.hasIncome ? '来自交易所流水' : '点同步后可见'} />
-        <StatCard label="手续费" value={fmtUsd(s?.totalFee)} cls="down"
+        <StatCard label="手续费" value={s?.totalFee} format={fmtUsd} cls="down"
                   sub="累计支出" />
-        <StatCard label="落袋合计" value={fmtUsd((s?.totalRealized ?? 0) + (s?.totalFunding ?? 0))}
+        <StatCard label="落袋合计" value={(s?.totalRealized ?? 0) + (s?.totalFunding ?? 0)}
+                  format={fmtUsd}
                   cls={trendClass((s?.totalRealized ?? 0) + (s?.totalFunding ?? 0))}
                   sub="已实现 + 资金费，不含浮盈" />
         <StatCard label="交易标的" value={String(s?.symbolCount ?? 0)}
@@ -217,7 +229,9 @@ export default function Portfolio() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="empty">至少需要 2 笔交易才能画曲线</div>
+              <div className={sum === null ? 'skeleton skeleton-chart' : 'empty'}>
+                {sum === null ? '' : '至少需要 2 笔交易才能画曲线'}
+              </div>
             )}
           </div>
         </div>
@@ -384,6 +398,8 @@ export default function Portfolio() {
               </tbody>
             </table>
           </div>
+        ) : sum === null ? (
+          <TableSkeleton rows={8} cols={8} />
         ) : (
           <div className="empty">还没有交易记录</div>
         )}
