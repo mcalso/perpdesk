@@ -2,3 +2,4 @@
 #   pip install -r backend/requirements-dev.txt && pytest
 -r requirements.txt
 pytest==8.3.4
+pytest-cov==6.0.0

@@ -23,6 +23,12 @@ frontend/dist/
 __pycache__/
 *.py[cod]
 
+# 测试产物
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
 # 编辑器 / 系统
 .DS_Store
 .idea/
