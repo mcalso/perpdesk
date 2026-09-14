@@ -3,50 +3,9 @@ import sqlite3
 import time
 from typing import Any
 
-from . import config
+from . import config, migrations
 
 _conn: sqlite3.Connection | None = None
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS watchlist (
-    symbol     TEXT PRIMARY KEY,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    added_at   INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS trades (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol     TEXT NOT NULL,
-    side       TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
-    qty        REAL NOT NULL CHECK (qty > 0),
-    price      REAL NOT NULL CHECK (price >= 0),
-    fee        REAL NOT NULL DEFAULT 0,
-    traded_at  INTEGER NOT NULL,
-    note       TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    -- 交易所给的每笔已实现盈亏。优先用它而不是本地回放：
-    -- 账户可能用过双向持仓模式（同一标的同时持多空），净额加权平均法算不对。
-    -- 手工录入的成交没有这个值，留 NULL，由回放补算。
-    realized_pnl REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_trades_symbol_time ON trades (symbol, traded_at);
-
--- 交易所资金流水：资金费、已实现盈亏、手续费等。
--- 资金费不体现在成交记录里，但对长期持仓（尤其高杠杆）是实打实的损益，
--- 必须单独同步，否则盈亏统计会系统性偏离交易所口径。
-CREATE TABLE IF NOT EXISTS income (
-    tran_id  TEXT PRIMARY KEY,
-    symbol   TEXT NOT NULL DEFAULT '',
-    type     TEXT NOT NULL,
-    amount   REAL NOT NULL,
-    asset    TEXT NOT NULL DEFAULT '',
-    ts       INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_income_type_time ON income (type, ts);
-CREATE INDEX IF NOT EXISTS idx_income_symbol ON income (symbol);
-"""
 
 
 def connect() -> sqlite3.Connection:
@@ -57,8 +16,8 @@ def connect() -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
-        _conn.executescript(SCHEMA)
-        _migrate(_conn)
+        # 建表与后续所有 schema 变更都归迁移管，这里不再有第二份 schema 定义
+        migrations.run(_conn, config.DB_PATH)
         _seed_watchlist(_conn)
         _conn.commit()
     return _conn
@@ -69,13 +28,6 @@ def close() -> None:
     if _conn is not None:
         _conn.close()
         _conn = None
-
-
-def _migrate(conn: sqlite3.Connection) -> None:
-    """轻量迁移：老库缺 realized_pnl 列时补上。"""
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
-    if "realized_pnl" not in cols:
-        conn.execute("ALTER TABLE trades ADD COLUMN realized_pnl REAL")
 
 
 def _seed_watchlist(conn: sqlite3.Connection) -> None:

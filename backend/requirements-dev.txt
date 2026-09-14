@@ -1,0 +1,4 @@
+# 开发/测试依赖。运行时不需要，部署脚本也不装。
+#   pip install -r backend/requirements-dev.txt && pytest
+-r requirements.txt
+pytest==8.3.4
