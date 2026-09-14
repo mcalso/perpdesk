@@ -128,6 +128,7 @@ def reorder_watchlist(symbols: list[str]) -> None:
 # ---------- trades ----------
 
 def list_trades(symbol: str | None = None) -> list[dict[str, Any]]:
+    """全部成交，按时间升序。供盈亏回放用——回放必须拿全量，不能分页。"""
     sql = "SELECT * FROM trades"
     args: tuple = ()
     if symbol:
@@ -135,6 +136,31 @@ def list_trades(symbol: str | None = None) -> list[dict[str, Any]]:
         args = (symbol,)
     sql += " ORDER BY traded_at, id"
     return [dict(r) for r in connect().execute(sql, args).fetchall()]
+
+
+def page_trades(symbol: str | None = None, limit: int = 200,
+                offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+    """给界面看的成交流水，按时间倒序分页。
+
+    这张表有上万行，全量返回是 2MB 级的响应——在小带宽机器上要几十秒，
+    而界面一次也就显示几十行。
+    """
+    where, args = "", []
+    if symbol:
+        where = " WHERE symbol = ?"
+        args = [symbol]
+    total = connect().execute(f"SELECT COUNT(*) FROM trades{where}", args).fetchone()[0]
+    rows = connect().execute(
+        f"SELECT * FROM trades{where} ORDER BY traded_at DESC, id DESC LIMIT ? OFFSET ?",
+        (*args, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows], total
+
+
+def trades_version() -> tuple[int, int]:
+    """(行数, 最大 id)，作为缓存版本号——成交没变就不必重算盈亏。"""
+    r = connect().execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM trades").fetchone()
+    return int(r[0]), int(r[1])
 
 
 def add_trade(

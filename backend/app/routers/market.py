@@ -35,6 +35,7 @@ async def tickers(
     desc: bool = Query(True),
     limit: int = Query(500, ge=1, le=1000),
     search: str = Query("", description="按 symbol 模糊过滤"),
+    slim: bool = Query(True, description="只返回看板用得到的字段"),
 ) -> dict:
     if sort not in SORT_KEYS:
         raise HTTPException(400, f"sort must be one of {sorted(SORT_KEYS)}")
@@ -42,8 +43,15 @@ async def tickers(
     if search:
         needle = search.upper()
         rows = [r for r in rows if needle in r["symbol"]]
+    total = len(rows)
     rows.sort(key=SORT_KEYS[sort], reverse=desc)
-    return {"rows": rows[:limit], "total": len(rows), "status": hub.status()}
+    rows = rows[:limit]
+    if slim:
+        # 看板只用得上这几个字段；全量字段 718 行约 240KB，瘦身后不到三分之一
+        keep = ("symbol", "base", "assetClass", "last", "chgPct",
+                "quoteVolume", "fundingRate", "markPrice", "live")
+        rows = [{k: r[k] for k in keep if k in r} for r in rows]
+    return {"rows": rows, "total": total, "status": hub.status()}
 
 
 @router.get("/icon/{symbol}")

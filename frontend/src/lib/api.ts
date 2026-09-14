@@ -119,8 +119,14 @@ export const api = {
   removeWatch: (symbol: string) =>
     req<{ ok: boolean; symbols: string[] }>(`/api/watchlist/${symbol}`, { method: 'DELETE' }),
 
-  trades: (symbol?: string) =>
-    req<Trade[]>(`/api/portfolio/trades${symbol ? `?symbol=${symbol}` : ''}`),
+  trades: (opts: { symbol?: string; limit?: number; offset?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.symbol) q.set('symbol', opts.symbol)
+    q.set('limit', String(opts.limit ?? 200))
+    q.set('offset', String(opts.offset ?? 0))
+    return req<{ rows: Trade[]; total: number; limit: number; offset: number }>(
+      `/api/portfolio/trades?${q}`)
+  },
   addTrade: (t: Omit<Trade, 'id' | 'created_at' | 'traded_at'> & { traded_at?: number | null }) =>
     req<{ ok: boolean; id: number }>('/api/portfolio/trades', {
       method: 'POST', body: JSON.stringify(t),

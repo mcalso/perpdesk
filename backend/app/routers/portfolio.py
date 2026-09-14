@@ -3,6 +3,8 @@ import csv
 import io
 import time
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
@@ -44,8 +46,14 @@ def _marks() -> dict[str, float]:
 
 
 @router.get("/trades")
-async def list_trades(symbol: str | None = None) -> list[dict]:
-    return db.list_trades(symbol.upper() if symbol else None)
+async def list_trades(
+    symbol: str | None = None,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """成交流水，按时间倒序分页。"""
+    rows, total = db.page_trades(symbol.upper() if symbol else None, limit, offset)
+    return {"rows": rows, "total": total, "limit": limit, "offset": offset}
 
 
 @router.post("/trades")
@@ -108,6 +116,19 @@ def _parse_ts(s: str) -> int:
     raise ValueError(f"无法解析时间: {s}")
 
 
+# 盈亏回放的结果缓存。键是 (成交版本号, 区间)，成交表一变即自动失效。
+# 回放本身只要几十毫秒，但页面会反复切区间、定时刷新，缓存能省掉重复计算。
+_calc_cache: dict[tuple, Any] = {}
+
+
+def _cached(kind: str, days: int | None, build):
+    key = (kind, db.trades_version(), days)
+    if key not in _calc_cache:
+        _calc_cache.clear()          # 版本变了旧条目就没用了，整体丢弃
+        _calc_cache[key] = build()
+    return _calc_cache[key]
+
+
 def _since(days: int | None) -> int | None:
     """天数转起始时间戳。days 为空表示全部历史。"""
     return None if not days else int((time.time() - days * 86400) * 1000)
@@ -116,9 +137,17 @@ def _since(days: int | None) -> int | None:
 @router.get("/summary")
 async def summary(days: int | None = Query(None, ge=1, le=3650,
                                            description="只统计最近 N 天，留空为全部历史")) -> dict:
-    trades = db.list_trades()
     since = _since(days)
-    result = pnl.build_summary(trades, _marks(), since=since)
+    # 持仓估值要用实时标记价，所以缓存的是回放结果而非最终响应
+    result = _cached("summary", days,
+                     lambda: pnl.build_summary(db.list_trades(), {}, since=since))
+    marks = _marks()
+    for p in result["positions"]:
+        mark = marks.get(p["symbol"], 0.0)
+        if mark and p["qty"]:
+            p["markPrice"] = mark
+            p["unrealized"] = (mark - p["avgCost"]) * p["qty"]
+            p["value"] = p["qty"] * mark
 
     # 资金费单列：它不出现在成交记录里，但对长期/高杠杆持仓是实打实的损益，
     # 漏掉会让统计系统性偏乐观。已实现盈亏仍只算平仓部分，两者不混。
@@ -151,9 +180,8 @@ async def curve(
     默认抽稀到 600 个点：原始曲线可达数千点（约数百 KB），传输与渲染都很慢，
     而抽稀保留了每段极值，视觉上看不出差别。
     """
-    trades = db.list_trades()
     since = _since(days)
-    full = pnl.equity_curve(trades, since=since)
+    full = _cached("curve", days, lambda: pnl.equity_curve(db.list_trades(), since=since))
     shown = pnl.downsample(full, points) if points else full
     return {
         "points": shown,

@@ -31,6 +31,8 @@ export default function Portfolio() {
   const [sum, setSum] = useState<PortfolioSummary | null>(null)
   const [curve, setCurve] = useState<{ t: number; realized: number }[]>([])
   const [trades, setTrades] = useState<Trade[]>([])
+  const [tradeTotal, setTradeTotal] = useState(0)
+  const [tradePage, setTradePage] = useState(0)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [showCsv, setShowCsv] = useState(false)
@@ -44,16 +46,25 @@ export default function Portfolio() {
     qty: '', price: '', fee: '', date: '', note: '',
   })
 
+  const TRADE_PAGE = 50
+
   const reload = useCallback(async () => {
     try {
-      const [s, c, t] = await Promise.all([api.summary(days), api.curve(days), api.trades()])
-      setSum(s); setCurve(c.points); setTrades(t); setRange({ from: c.from, to: c.to })
+      const [s, c, t] = await Promise.all([
+        api.summary(days), api.curve(days),
+        api.trades({ limit: TRADE_PAGE, offset: tradePage * TRADE_PAGE }),
+      ])
+      setSum(s); setCurve(c.points)
+      setTrades(t.rows); setTradeTotal(t.total)
+      setRange({ from: c.from, to: c.to })
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
-  }, [days])
+  }, [days, tradePage])
 
   useEffect(() => {
     reload()
-    const t = setInterval(reload, 20000)   // 跟随行情刷新，让浮盈动起来
+    // 这一区都是已落袋的历史数据，只在同步成交后才变化，无需高频轮询
+    // （浮盈与持仓在上方交易所区，那边是 2 秒刷新的）
+    const t = setInterval(reload, 120000)
     return () => clearInterval(t)
   }, [reload])
 
@@ -315,7 +326,20 @@ export default function Portfolio() {
       </div>
 
       <div className="panel">
-        <div className="panel-head">交易流水<span className="muted" style={{ fontWeight: 400 }}>{trades.length} 笔</span></div>
+        <div className="panel-head">
+          交易流水
+          <span className="muted" style={{ fontWeight: 400 }}>
+            共 {tradeTotal.toLocaleString()} 笔
+          </span>
+          <div className="spacer" />
+          <button className="sm" disabled={tradePage === 0}
+                  onClick={() => setTradePage(tradePage - 1)}>上一页</button>
+          <span className="muted">
+            {tradeTotal ? `${tradePage * 50 + 1}–${Math.min((tradePage + 1) * 50, tradeTotal)}` : '—'}
+          </span>
+          <button className="sm" disabled={(tradePage + 1) * 50 >= tradeTotal}
+                  onClick={() => setTradePage(tradePage + 1)}>下一页</button>
+        </div>
         {trades.length ? (
           <div className="table-scroll" style={{ maxHeight: 360 }}>
             <table>
