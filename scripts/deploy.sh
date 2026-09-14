@@ -15,7 +15,10 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 
 if [[ "$MODE" == "--local" ]]; then
   say "同步本地工作区到 $HOST:$REMOTE_DIR"
-  rsync -az --delete \
+  # --no-owner --no-group：rsync 以 root 跑时 -a 会把本机的 uid/gid 原样
+  # 盖到服务器上（实测把 /opt/perpdesk 变成 1024:1027），之后 git 会判定
+  # repo 属主可疑而拒绝工作，git 部署路径就此失效
+  rsync -az --no-owner --no-group --delete \
     --exclude '.git' --exclude 'node_modules' --exclude '.venv' \
     --exclude 'data' --exclude '.run' --exclude 'backend/.env' \
     --exclude 'frontend/dist' \
