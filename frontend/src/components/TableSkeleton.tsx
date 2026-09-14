@@ -10,11 +10,12 @@ export function TableSkeleton({ rows = 8, cols = 6 }: { rows?: number; cols?: nu
   return (
     <div
       className="skeleton-table"
-      aria-hidden
+      role="status"
+      aria-label="加载中"
       style={{ '--sk-cols': cols } as React.CSSProperties}
     >
       {Array.from({ length: rows }, (_, r) => (
-        <div className="skeleton-row" key={r}>
+        <div className="skeleton-row" key={r} aria-hidden>
           {Array.from({ length: cols }, (_, c) => (
             // 宽度按下标做确定性抖动：每格一样宽会显得很假，
             // 用 Math.random 则每次重渲染都在跳

@@ -25,6 +25,9 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
   const [status, setStatus] = useState<AccountStatus | null>(null)
   const [data, setData] = useState<AccountOverview | null>(null)
   const [err, setErr] = useState('')
+  // 「还没请求回来」和「请求回来了但没数据」要分开：
+  // 只看 data 是否为 null 的话，接口一直报错就会永远转骨架屏
+  const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
 
@@ -36,6 +39,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
       setData(await api.accountOverview())
       setErr('')
     } catch (e) { setErr((e as Error).message) }
+    finally { setLoaded(true) }
   }, [])
 
   useEffect(() => {
@@ -218,8 +222,8 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
             </tbody>
           </table>
         ) : (
-          data ? <div className="empty">当前无持仓</div>
-               : <TableSkeleton rows={6} cols={8} />
+          loaded ? <div className="empty">{data ? '当前无持仓' : '读不到账户数据'}</div>
+                 : <TableSkeleton rows={6} cols={8} />
         )}
       </div>
 

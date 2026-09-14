@@ -22,7 +22,10 @@ const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
  */
 export function AnimatedNumber({ value, format, className, duration = 420 }: Props) {
   const ref = useRef<HTMLSpanElement>(null)
-  const from = useRef<number | null | undefined>(undefined)
+  // 屏幕上此刻真正显示的数（动画中间态），不是上一次的目标值。
+  // 用目标值当起点的话，动画被下一次更新打断时会先跳回旧目标再往前滚。
+  const shown = useRef<number | null | undefined>(undefined)
+  const seen = useRef(false)
   const raf = useRef(0)
   // format 常以内联箭头函数传入，身份每次渲染都变；放进 ref 才不会反复触发动画
   const fmt = useRef(format)
@@ -32,20 +35,26 @@ export function AnimatedNumber({ value, format, className, duration = 420 }: Pro
     const el = ref.current
     if (!el) return
 
-    const start = from.current
-    from.current = value
+    const start = shown.current
+    const first = !seen.current
+    seen.current = true
 
-    const settle = () => { el.textContent = fmt.current(value) }
+    const settle = () => {
+      shown.current = value
+      el.textContent = fmt.current(value)
+    }
 
     // 首帧、空值、无变化：直接落定，不做动画。
     // 首帧刻意不从 0 滚上来 —— 那是金额，凭空长出来的过程会误导人。
-    if (start == null || value == null || start === value) return settle()
+    if (first || start == null || value == null || start === value) return settle()
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return settle()
 
     const t0 = performance.now()
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / duration)
-      el.textContent = fmt.current(start + (value - start) * easeOutCubic(p))
+      const at = p < 1 ? start + (value - start) * easeOutCubic(p) : value
+      shown.current = at
+      el.textContent = fmt.current(at)
       if (p < 1) raf.current = requestAnimationFrame(tick)
     }
     cancelAnimationFrame(raf.current)

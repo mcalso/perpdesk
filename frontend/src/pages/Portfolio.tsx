@@ -39,6 +39,9 @@ function StatCard({ label, value, format, sub, cls, hero }: {
 
 export default function Portfolio() {
   const [sum, setSum] = useState<PortfolioSummary | null>(null)
+  // 同上：区分「首次还没拉回来」和「拉回来了确实没记录」，
+  // 否则后端不通时会一直显示骨架屏
+  const [loaded, setLoaded] = useState(false)
   const [curve, setCurve] = useState<{ t: number; realized: number }[]>([])
   const [trades, setTrades] = useState<Trade[]>([])
   const [tradeTotal, setTradeTotal] = useState(0)
@@ -68,6 +71,7 @@ export default function Portfolio() {
       setTrades(t.rows); setTradeTotal(t.total)
       setRange({ from: c.from, to: c.to })
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
+    finally { setLoaded(true) }
   }, [days, tradePage])
 
   useEffect(() => {
@@ -229,8 +233,8 @@ export default function Portfolio() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className={sum === null ? 'skeleton skeleton-chart' : 'empty'}>
-                {sum === null ? '' : '至少需要 2 笔交易才能画曲线'}
+              <div className={loaded ? 'empty' : 'skeleton skeleton-chart'}>
+                {loaded ? (sum ? '至少需要 2 笔交易才能画曲线' : '读不到盈亏数据') : ''}
               </div>
             )}
           </div>
@@ -241,7 +245,7 @@ export default function Portfolio() {
       {closed.length > 0 && (
         <div className="panel">
           <div className="panel-head">已平仓标的<span className="muted" style={{ fontWeight: 400 }}>{closed.length}</span></div>
-          <table>
+          <table className="cards">
             <thead>
               <tr>
                 <SortHeader label="标的" sortKey="symbol" current={closedSort.sortKey} dir={closedSort.sortDir} onSort={closedSort.toggle} />
@@ -255,14 +259,18 @@ export default function Portfolio() {
             <tbody>
               {closedSort.sorted.map((p) => (
                 <tr key={p.symbol}>
-                  <td className="sym">
+                  <td className="sym card-title">
                     <div className="sym-cell"><SymbolIcon symbol={p.symbol} size={18} />{p.symbol}</div>
                   </td>
-                  <td className={`right mono ${trendClass(p.realized)}`}>{fmtUsd(p.realized)}</td>
-                  <td className="right mono">{fmtUsd(p.fee)}</td>
-                  <td className={`right mono ${trendClass(p.funding)}`}>{fmtUsd(p.funding)}</td>
-                  <td className="right mono">{p.tradeCount}</td>
-                  <td className="right muted">{fmtTime(p.lastAt)}</td>
+                  <td className={`right mono ${trendClass(p.realized)}`} data-label="已实现盈亏">
+                    {fmtUsd(p.realized)}
+                  </td>
+                  <td className="right mono" data-label="手续费">{fmtUsd(p.fee)}</td>
+                  <td className={`right mono ${trendClass(p.funding)}`} data-label="资金费">
+                    {fmtUsd(p.funding)}
+                  </td>
+                  <td className="right mono" data-label="成交笔数">{p.tradeCount}</td>
+                  <td className="right muted" data-label="最后交易">{fmtTime(p.lastAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -363,7 +371,7 @@ export default function Portfolio() {
         </div>
         {trades.length ? (
           <div className="table-scroll" style={{ maxHeight: 360 }}>
-            <table>
+            <table className="cards">
               <thead>
                 <tr>
                   <SortHeader label="时间" sortKey="traded_at" current={tradeSort.sortKey} dir={tradeSort.sortDir} onSort={tradeSort.toggle} />
@@ -379,18 +387,18 @@ export default function Portfolio() {
               <tbody>
                 {tradeSort.sorted.map((t) => (
                   <tr key={t.id}>
-                    <td className="muted">{fmtTime(t.traded_at)}</td>
-                    <td className="sym">
+                    <td className="muted" data-label="时间">{fmtTime(t.traded_at)}</td>
+                    <td className="sym card-title">
                       <div className="sym-cell"><SymbolIcon symbol={t.symbol} size={18} />{t.symbol}</div>
                     </td>
-                    <td className={t.side === 'BUY' ? 'up' : 'down'}>
+                    <td className={t.side === 'BUY' ? 'up' : 'down'} data-label="方向">
                       {t.side === 'BUY' ? '买入' : '卖出'}
                     </td>
-                    <td className="right mono">{fmtQty(t.qty)}</td>
-                    <td className="right mono">{fmtPrice(t.price)}</td>
-                    <td className="right mono">{t.fee ? fmtUsd(t.fee) : '—'}</td>
-                    <td className="muted">{t.note || '—'}</td>
-                    <td className="right">
+                    <td className="right mono" data-label="数量">{fmtQty(t.qty)}</td>
+                    <td className="right mono" data-label="价格">{fmtPrice(t.price)}</td>
+                    <td className="right mono" data-label="手续费">{t.fee ? fmtUsd(t.fee) : '—'}</td>
+                    <td className="muted" data-label="备注">{t.note || '—'}</td>
+                    <td className="right card-corner">
                       <button className="ghost sm danger" onClick={() => del(t.id)}>删除</button>
                     </td>
                   </tr>
@@ -398,10 +406,10 @@ export default function Portfolio() {
               </tbody>
             </table>
           </div>
-        ) : sum === null ? (
-          <TableSkeleton rows={8} cols={8} />
+        ) : loaded ? (
+          <div className="empty">{sum ? '还没有交易记录' : '读不到交易数据'}</div>
         ) : (
-          <div className="empty">还没有交易记录</div>
+          <TableSkeleton rows={8} cols={8} />
         )}
       </div>
     </div>

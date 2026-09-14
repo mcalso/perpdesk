@@ -9,7 +9,6 @@
 :root {
   /* 底色比原来更深，为的是让面板浮起来——面板色不动，靠背景压暗拉开差值 */
   --bg: #0b0e17;
-  --bg-soft: #0f1320;
   --panel: #161a25;
   --panel-2: #1e2330;
   --panel-3: #262c3b;
@@ -457,9 +456,11 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
  * 字段名从 td 的 data-label 里长出来。不需要复制一份 JSX。 */
 @media (max-width: 760px) {
   .cards thead { display: none; }
-  .cards, .cards tbody, .cards tr, .cards td { display: block; width: 100%; }
+  .cards, .cards tbody, .cards td { display: block; width: 100%; }
 
   .cards tr {
+    /* flex 列 + order，让卡头能提到最前，不用为此调整 thead/td 的列序 */
+    display: flex; flex-direction: column; width: 100%;
     position: relative;
     background: var(--panel-2);
     border: 1px solid var(--border);
@@ -468,7 +469,6 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
     padding-bottom: 4px;
     overflow: hidden;
   }
-  .cards tr:hover { box-shadow: none; }
 
   .cards td {
     display: flex; align-items: center; justify-content: space-between;
@@ -493,6 +493,7 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
     font-size: var(--fs-lg);
   }
   .cards td.card-title::before { content: none; }
+  .cards td.card-title { order: -1; }
 
   /* 自选星标钉在卡片右上角，不单占一行 */
   .cards td.card-corner {
@@ -503,8 +504,6 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
 
   /* 卡片模式下表格不再需要限高滚动 */
   .table-scroll { max-height: none; }
-  /* 持仓分布饼图在窄屏挤成一条，给它一个下限 */
-  .row > .panel { min-width: 0; }
 }
 
 /* ---------- 页面切换过渡 ----------
