@@ -229,3 +229,118 @@ def test_every_migration_stays_inside_its_transaction(db, monkeypatch):
 
     assert len(still_in_tx) == len(migrations.MIGRATIONS)
     assert all(still_in_tx), "某条迁移跑完后事务已经没了，多半用了 executescript"
+
+
+# ---------------------------------------------------------------- _m003 账户维度
+
+def _legacy_with_data(conn):
+    conn.executescript(LEGACY_SCHEMA)
+    conn.execute("""INSERT INTO trades
+        (symbol, side, qty, price, fee, traded_at, note, created_at)
+        VALUES ('BTCUSDT', 'BUY', 1.5, 60000, 0.1, 1000, 'binance:42', 1000)""")
+    conn.execute("INSERT INTO income VALUES ('t1', 'BTCUSDT', 'FUNDING_FEE', -0.3, 'USDT', 1000)")
+    conn.commit()
+
+
+def test_m003_creates_default_account_and_backfills(db):
+    """存量数据全部归到 1 号账户 —— 此刻只有一个账户，归属没有歧义。"""
+    conn, path = db
+    _legacy_with_data(conn)
+
+    migrations.run(conn, path)
+
+    acct = conn.execute("SELECT * FROM accounts").fetchall()
+    assert len(acct) == 1
+    assert (acct[0]["id"], acct[0]["exchange"], acct[0]["market"]) == (1, "binance", "usdm")
+    assert acct[0]["enabled"] == 1
+
+    assert conn.execute("SELECT account_id FROM trades").fetchone()[0] == 1
+    assert conn.execute("SELECT account_id FROM income").fetchone()[0] == 1
+
+
+def test_m003_preserves_trade_rows_verbatim(db):
+    conn, path = db
+    _legacy_with_data(conn)
+    before = dict(conn.execute("SELECT * FROM trades").fetchone())
+
+    migrations.run(conn, path)
+
+    after = dict(conn.execute("SELECT * FROM trades").fetchone())
+    for col, val in before.items():
+        assert after[col] == val, f"{col} 在重建后变了"
+    assert after["realized_pnl"] is None
+    assert after["note"] == "binance:42"
+
+
+def test_m003_income_primary_key_is_per_account(db):
+    """交易所的流水号只在单账户内唯一，换个账户完全可能撞。
+
+    主键还是 tran_id 的话，第二个账户同号的流水会被 INSERT OR IGNORE
+    静默丢掉 —— 资金费算少了，而且不会有任何报错。
+    """
+    conn, path = db
+    _legacy_with_data(conn)
+    migrations.run(conn, path)
+    conn.execute("INSERT INTO accounts (id, exchange, market, label, created_at) "
+                 "VALUES (2, 'binance', 'usdm', '二号', 0)")
+
+    conn.execute("INSERT INTO income VALUES (2, 't1', 'ETHUSDT', 'FUNDING_FEE', -9.9, 'USDT', 2000)")
+    conn.commit()
+
+    assert conn.execute("SELECT COUNT(*) FROM income WHERE tran_id='t1'").fetchone()[0] == 2
+
+    with pytest.raises(sqlite3.IntegrityError):   # 同账户内仍然唯一
+        conn.execute("INSERT INTO income VALUES (2, 't1', 'X', 'Y', 0, 'USDT', 3000)")
+
+
+def test_m003_trades_require_a_known_account(db):
+    """漏传 account_id 或指向不存在的账户，都必须当场失败。
+
+    NOT NULL 挡住"忘了传"——否则会悄悄落到默认账户；
+    外键挡住"账户已删"——否则留下一堆查不到出处的孤儿成交。
+    """
+    conn, path = db
+    conn.execute("PRAGMA foreign_keys=ON")
+    _legacy_with_data(conn)
+    migrations.run(conn, path)
+
+    with pytest.raises(sqlite3.IntegrityError):   # 不存在的账户
+        conn.execute("""INSERT INTO trades
+            (account_id, symbol, side, qty, price, fee, traded_at, note, created_at)
+            VALUES (99, 'BTCUSDT', 'BUY', 1, 1, 0, 1, '', 1)""")
+
+    with pytest.raises(sqlite3.IntegrityError):   # 漏传
+        conn.execute("""INSERT INTO trades
+            (symbol, side, qty, price, fee, traded_at, note, created_at)
+            VALUES ('BTCUSDT', 'BUY', 1, 1, 0, 1, '', 1)""")
+
+
+def test_m003_keeps_autoincrement_sequence(db):
+    """重建表不能让 id 从头开始 —— note 里的 binance:<tradeId> 去重靠它。"""
+    conn, path = db
+    conn.executescript(LEGACY_SCHEMA)
+    for i in range(5):
+        conn.execute("""INSERT INTO trades
+            (symbol, side, qty, price, fee, traded_at, note, created_at)
+            VALUES ('BTCUSDT','BUY',1,1,0,?,'',1)""", (i,))
+    conn.commit()
+    migrations.run(conn, path)
+
+    conn.execute("""INSERT INTO trades
+        (account_id, symbol, side, qty, price, fee, traded_at, note, created_at)
+        VALUES (1,'ETHUSDT','BUY',1,1,0,9,'',1)""")
+    assert conn.execute("SELECT MAX(id) FROM trades").fetchone()[0] == 6
+
+
+def test_m003_is_safe_to_rerun(db):
+    """迁移必须能在"已经是目标状态"的库上安全重跑 —— 重建表尤其危险。"""
+    conn, path = db
+    _legacy_with_data(conn)
+    migrations.run(conn, path)
+    rows_before = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+
+    conn.execute(f"PRAGMA user_version = 2")   # 假装 _m003 还没跑
+    migrations.run(conn, path)
+
+    assert conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == rows_before
+    assert conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1

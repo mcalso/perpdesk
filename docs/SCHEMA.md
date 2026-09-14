@@ -73,12 +73,31 @@ pytest
 
 | 表 | 说明 |
 |---|---|
-| `watchlist` | 自选标的与排序 |
+| `accounts` | 交易所账户。一个人可能在多个交易所、多个账户下交易 |
+| `watchlist` | 自选标的与排序（不分账户，是"我关注什么"而不是"我在哪儿持仓"）|
 | `trades` | 成交流水。`realized_pnl` 是交易所给的每笔已实现盈亏，优先于本地回放——账户可能用过双向持仓模式，净额加权平均法在那种情况下算不对；手工录入的成交留 `NULL`，由回放补算 |
 | `income` | 交易所资金流水（资金费、手续费等）。资金费不体现在成交记录里，但对长期持仓是实打实的损益，必须单独同步 |
 | `_migrations` | 迁移执行日志，仅供排查 |
 
-### 已知的待改点
+## 账户维度
 
-`income.tran_id` 现在是**主键**。币安的 tranId 只在单账户内唯一，接入多账户或
-第二家交易所时必然要改成复合键——见 ROADMAP 的层 0。
+`trades` 和 `income` 每一行都挂在某个账户下（`account_id NOT NULL REFERENCES accounts(id)`）。
+
+两条约束都是刻意的：
+
+* **NOT NULL** —— 漏传 `account_id` 的写入当场失败，而不是悄悄落到 1 号账户；
+* **外键** —— 删账户不能留下一堆查不到出处的孤儿成交。
+
+要同时拿到这两条就只能重建表：SQLite 不允许 `ADD COLUMN` 同时带 `NOT NULL` 和
+`REFERENCES`（`Cannot add a REFERENCES column with non-NULL default value`）。
+
+`income` 的主键是 **`(account_id, tran_id)`** 而不是 `tran_id`。交易所的流水号只在
+单账户内唯一，换个账户完全可能撞——主键不含账户的话，第二个账户同号的流水会被
+`INSERT OR IGNORE` 静默丢掉：资金费算少了，而且不会有任何报错。
+
+持久层的约定：**`account_id=None` 表示"默认账户"**（`sort_order` 最小的启用账户）。
+合并多账户的视图等有了账户切换界面再做——在那之前默认只看一个账户，
+比悄悄把几个账户的持仓加在一起安全。
+
+凭据**不在** `accounts` 表里。那需要先有加密存储，是下一步的事；
+现在 1 号账户仍然读 `backend/.env`。

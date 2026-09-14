@@ -104,9 +104,97 @@ def _m002_trades_realized_pnl(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE trades ADD COLUMN realized_pnl REAL")
 
 
+_M003_ACCOUNTS = (
+    """CREATE TABLE IF NOT EXISTS accounts (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        exchange   TEXT    NOT NULL,              -- 'binance'
+        market     TEXT    NOT NULL DEFAULT 'usdm',  -- 'usdm' / 'coinm' / 'spot'
+        label      TEXT    NOT NULL,              -- 界面上显示的名字
+        enabled    INTEGER NOT NULL DEFAULT 1,    -- 停用而不删除，历史成交要留着
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+    )""",
+)
+
+# trades / income 都要重建而不是 ALTER：SQLite 不允许 ADD COLUMN 同时带
+# NOT NULL 和 REFERENCES（"Cannot add a REFERENCES column with non-NULL
+# default value"），而这两个约束都想要 —— NOT NULL 让漏传 account_id 的写入
+# 当场失败而不是悄悄落到 1 号账户，外键防止删账户留下一堆孤儿成交。
+# income 另有一层：主键必须从 tran_id 改成 (account_id, tran_id)，
+# 交易所的流水号只在单账户内唯一，换个账户就可能撞。
+_M003_TRADES = (
+    """CREATE TABLE trades_m003 (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        symbol     TEXT NOT NULL,
+        side       TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
+        qty        REAL NOT NULL CHECK (qty > 0),
+        price      REAL NOT NULL CHECK (price >= 0),
+        fee        REAL NOT NULL DEFAULT 0,
+        traded_at  INTEGER NOT NULL,
+        note       TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        realized_pnl REAL
+    )""",
+    """INSERT INTO trades_m003
+           (id, account_id, symbol, side, qty, price, fee, traded_at, note,
+            created_at, realized_pnl)
+       SELECT id, 1, symbol, side, qty, price, fee, traded_at, note,
+              created_at, realized_pnl
+         FROM trades""",
+    "DROP TABLE trades",
+    "ALTER TABLE trades_m003 RENAME TO trades",
+    "CREATE INDEX idx_trades_acct_symbol_time ON trades (account_id, symbol, traded_at)",
+)
+
+_M003_INCOME = (
+    """CREATE TABLE income_m003 (
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        tran_id  TEXT NOT NULL,
+        symbol   TEXT NOT NULL DEFAULT '',
+        type     TEXT NOT NULL,
+        amount   REAL NOT NULL,
+        asset    TEXT NOT NULL DEFAULT '',
+        ts       INTEGER NOT NULL,
+        PRIMARY KEY (account_id, tran_id)
+    )""",
+    """INSERT INTO income_m003 (account_id, tran_id, symbol, type, amount, asset, ts)
+       SELECT 1, tran_id, symbol, type, amount, asset, ts FROM income""",
+    "DROP TABLE income",
+    "ALTER TABLE income_m003 RENAME TO income",
+    "CREATE INDEX idx_income_acct_type_time ON income (account_id, type, ts)",
+    "CREATE INDEX idx_income_acct_symbol ON income (account_id, symbol)",
+)
+
+
+def _m003_accounts(conn: sqlite3.Connection) -> None:
+    """引入账户维度。
+
+    在此之前 trades / income 里的每一行都隐式属于"backend/.env 里配的那个
+    币安账户"。存量数据全部归到 1 号账户 —— 这一步能干净地做，正是因为
+    此刻只存在一个账户，不存在归属判断；等两个账户的成交混在一起就晚了。
+
+    凭据不放进这张表：那要先有加密存储，是下一步的事。现在 1 号账户仍然
+    读 backend/.env。
+    """
+    if "account_id" in {r[1] for r in conn.execute("PRAGMA table_info(trades)")}:
+        return  # 已经是目标状态（迁移必须能安全重跑）
+
+    _exec_all(conn, _M003_ACCOUNTS)
+    if not conn.execute("SELECT 1 FROM accounts LIMIT 1").fetchone():
+        conn.execute(
+            "INSERT INTO accounts (id, exchange, market, label, created_at) "
+            "VALUES (1, 'binance', 'usdm', ?, ?)",
+            ("Binance U 本位", int(time.time() * 1000)),
+        )
+    _exec_all(conn, _M003_TRADES)
+    _exec_all(conn, _M003_INCOME)
+
+
 MIGRATIONS: list[tuple[int, str, Apply]] = [
     (1, "baseline", _m001_baseline),
     (2, "trades.realized_pnl", _m002_trades_realized_pnl),
+    (3, "accounts", _m003_accounts),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]
