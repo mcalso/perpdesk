@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { ExchangeAccount } from '../components/ExchangeAccount'
 import { SortHeader } from '../components/SortHeader'
@@ -15,11 +15,11 @@ const RANGES: { v: number | null; label: string }[] = [
   { v: 90, label: '90天' }, { v: 365, label: '1年' }, { v: null, label: '全部' },
 ]
 
-function StatCard({ label, value, sub, cls }: {
-  label: string; value: string; sub?: string; cls?: string
+function StatCard({ label, value, sub, cls, hero }: {
+  label: string; value: string; sub?: string; cls?: string; hero?: boolean
 }) {
   return (
-    <div className="stat">
+    <div className={hero ? 'stat hero' : 'stat'}>
       <div className="label">{label}</div>
       <div className={`value ${cls || ''}`}>{value}</div>
       {sub && <div className="sub">{sub}</div>}
@@ -171,7 +171,7 @@ export default function Portfolio() {
 
       <div className="stats">
         <StatCard label="已实现盈亏" value={fmtUsd(s?.totalRealized)} cls={trendClass(s?.totalRealized)}
-                  sub="平仓损益，已扣手续费" />
+                  sub="平仓损益，已扣手续费" hero />
         <StatCard label="资金费" value={fmtUsd(s?.totalFunding)} cls={trendClass(s?.totalFunding)}
                   sub={s?.hasIncome ? '来自交易所流水' : '点同步后可见'} />
         <StatCard label="手续费" value={fmtUsd(s?.totalFee)} cls="down"
@@ -194,20 +194,27 @@ export default function Portfolio() {
           <div className="panel-body" style={{ height: 260 }}>
             {curve.length > 1 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={curve} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                  <CartesianGrid stroke="#2a2e39" strokeDasharray="3 3" />
-                  <XAxis dataKey="t" tickFormatter={fmtDate} stroke="#787b86" fontSize={11} />
-                  <YAxis stroke="#787b86" fontSize={11} width={70}
+                <AreaChart data={curve} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                  <defs>
+                    <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#5b8dff" stopOpacity={0.45} />
+                      <stop offset="100%" stopColor="#5b8dff" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#242938" strokeDasharray="3 3" />
+                  <XAxis dataKey="t" tickFormatter={fmtDate} stroke="#767a88" fontSize={11} />
+                  <YAxis stroke="#767a88" fontSize={11} width={70}
                          tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
                   <Tooltip
-                    contentStyle={{ background: '#1e222d', border: '1px solid #2a2e39',
-                                    borderRadius: 6, fontSize: 12 }}
+                    contentStyle={{ background: '#1e2330', border: '1px solid #333a4d',
+                                    borderRadius: 8, fontSize: 12,
+                                    boxShadow: '0 8px 24px -6px rgba(0,0,0,.6)' }}
                     labelFormatter={(v) => fmtTime(Number(v))}
                     formatter={(v: number) => [fmtUsd(v), '累计已实现']}
                   />
-                  <Line type="monotone" dataKey="realized" stroke="#2962ff" strokeWidth={2}
-                        dot={false} />
-                </LineChart>
+                  <Area type="monotone" dataKey="realized" stroke="#5b8dff" strokeWidth={2}
+                        fill="url(#pnlFill)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+                </AreaChart>
               </ResponsiveContainer>
             ) : (
               <div className="empty">至少需要 2 笔交易才能画曲线</div>

@@ -72,6 +72,16 @@ export function TradingViewChart({ tvSymbol, interval = '60', height = 620 }: Pr
           details: true,
           hide_side_toolbar: false,
           studies: ['MASimple@tv-basicstudies', 'Volume@tv-basicstudies'],
+          // 让 widget 的底色贴合页面面板；widget 不认识的键会被忽略，
+          // 最坏情况是退回 TradingView 自带的 dark 主题（色差很小）
+          backgroundColor: '#161a25',
+          gridColor: 'rgba(36, 41, 56, 0.7)',
+          overrides: {
+            'paneProperties.background': '#161a25',
+            'paneProperties.backgroundType': 'solid',
+            'paneProperties.vertGridProperties.color': 'rgba(36, 41, 56, 0.7)',
+            'paneProperties.horzGridProperties.color': 'rgba(36, 41, 56, 0.7)',
+          },
         })
       })
       .catch((e: Error) => { if (!cancelled) setError(e.message) })

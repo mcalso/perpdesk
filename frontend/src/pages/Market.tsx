@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FlashCell } from '../components/FlashCell'
 import { SortHeader } from '../components/SortHeader'
 import { SymbolIcon } from '../components/SymbolIcon'
 import { api, type Ticker } from '../lib/api'
@@ -192,8 +193,12 @@ export default function Market() {
                         )}
                       </div>
                     </td>
-                    <td className="right mono">{fmtPrice(r.last)}</td>
-                    <td className={`right mono ${trendClass(r.chgPct)}`}>{fmtPct(r.chgPct)}</td>
+                    <FlashCell value={r.last} className="right mono">
+                      {fmtPrice(r.last)}
+                    </FlashCell>
+                    <FlashCell value={r.chgPct} className={`right mono ${trendClass(r.chgPct)}`}>
+                      {fmtPct(r.chgPct)}
+                    </FlashCell>
                     <td className="right mono">${fmtCompact(r.quoteVolume)}</td>
                     <td className={`right mono ${trendClass(r.fundingRate)}`}>
                       {(r.fundingRate * 100).toFixed(4)}%

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { FlashCell } from './FlashCell'
 import { SortHeader } from './SortHeader'
 import { SymbolIcon } from './SymbolIcon'
 import { useSort } from '../lib/useSort'
@@ -92,7 +93,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
   return (
     <>
       <div className="stats">
-        <div className="stat">
+        <div className="stat hero">
           <div className="label">账户权益</div>
           <div className="value">{fmtUsd(data?.equity)}</div>
           <div className="sub">钱包 {fmtUsd(usdt?.balance)} · 可用 {fmtUsd(usdt?.available)}</div>
@@ -177,7 +178,9 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                       {p.side === 'LONG' ? '多' : '空'}</span></td>
                     <td className="right mono">{fmtQty(p.qty)}</td>
                     <td className="right mono">{fmtPrice(p.entryPrice)}</td>
-                    <td className="right mono">{fmtPrice(p.markPrice)}</td>
+                    <FlashCell value={p.markPrice} className="right mono">
+                      {fmtPrice(p.markPrice)}
+                    </FlashCell>
                     <td className="right mono">{fmtUsd(p.notional)}</td>
                     <td className="right">
                       <div className="weight-cell">
@@ -187,10 +190,12 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                         <span className="mono">{p.weight.toFixed(1)}%</span>
                       </div>
                     </td>
-                    <td className={`right mono ${trendClass(p.unrealized)}`}>
+                    <FlashCell value={p.unrealized} className={`right mono ${trendClass(p.unrealized)}`}>
                       {fmtUsd(p.unrealized)}
-                    </td>
-                    <td className={`right mono ${trendClass(p.pnlPct)}`}>{fmtPct(p.pnlPct)}</td>
+                    </FlashCell>
+                    <FlashCell value={p.pnlPct} className={`right mono ${trendClass(p.pnlPct)}`}>
+                      {fmtPct(p.pnlPct)}
+                    </FlashCell>
                     <td className="right mono">{p.leverage}x</td>
                     <td className={`right mono ${near ? 'down' : 'muted'}`}
                         title={near ? '距强平价不足 15%' : ''}>
@@ -221,12 +226,14 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
                 <Pie data={pie} dataKey="abs" nameKey="symbol" cx="50%" cy="50%"
                      innerRadius={50} outerRadius={95} paddingAngle={2}>
                   {pie.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="#131722" />
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="#161a25"
+                          strokeWidth={2} />
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{ background: '#1e222d', border: '1px solid #2a2e39',
-                                  borderRadius: 6, fontSize: 12 }}
+                  contentStyle={{ background: '#1e2330', border: '1px solid #333a4d',
+                                  borderRadius: 8, fontSize: 12,
+                                  boxShadow: '0 8px 24px -6px rgba(0,0,0,.6)' }}
                   formatter={(v: number, _n, p) => {
                     const d = p.payload as { symbol: string; weight: number; unrealized: number }
                     return [`${fmtUsd(v)} · ${d.weight.toFixed(1)}% · 浮盈 ${fmtUsd(d.unrealized)}`,

@@ -38,17 +38,17 @@ export function NativeChart({ symbol, interval = '60', height = 640 }: Props) {
     if (!box.current) return
     const chart = createChart(box.current, {
       layout: {
-        background: { color: '#131722' },
-        textColor: '#d1d4dc',
+        background: { color: '#161a25' },
+        textColor: '#d9dce5',
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: 'rgba(42, 46, 57, 0.6)' },
-        horzLines: { color: 'rgba(42, 46, 57, 0.6)' },
+        vertLines: { color: 'rgba(36, 41, 56, 0.7)' },
+        horzLines: { color: 'rgba(36, 41, 56, 0.7)' },
       },
       crosshair: { mode: 0 },
-      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.08, bottom: 0.26 } },
-      timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: '#242938', scaleMargins: { top: 0.08, bottom: 0.26 } },
+      timeScale: { borderColor: '#242938', timeVisible: true, secondsVisible: false },
       localization: { locale: 'zh-CN' },
     })
     const candle = chart.addSeries(CandlestickSeries, {
