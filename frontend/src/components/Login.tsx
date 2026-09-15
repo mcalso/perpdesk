@@ -43,8 +43,9 @@ export function Login() {
         </button>
         {err && <div className="msg err">{err}</div>}
         <p className="muted login-hint">
-          首次部署的口令会打印在后端日志里（<code>journalctl -u perpdesk</code>），
-          登录后请立即修改。
+          首次部署的口令会打印在后端日志里：systemd 部署看{' '}
+          <code>/var/log/perpdesk/api.log</code>，本地运行看{' '}
+          <code>./scripts/perpdesk.sh logs</code>。登录后请立即修改。
         </p>
       </form>
     </div>

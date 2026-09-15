@@ -75,9 +75,17 @@ PERPDESK_MASTER_KEY=$(openssl rand -hex 32)   # 存进你的密钥管理器
   代价是攻击者能把主人也一起挡在外面几分钟——那远好过被爆破。
 * 改口令会让**所有**会话失效（改口令的常见动机就是怀疑被人登进来了）。
 
-**首次启动会自动生成口令并打进日志**（`journalctl -u perpdesk`），
-而不是"没设口令就不鉴权"——后者会让一个刚部署、还没来得及设密码的实例
-在公网上裸奔。也可以用 `PERPDESK_PASSWORD` 自行指定。
+**首次启动会自动生成口令并打进日志**，而不是"没设口令就不鉴权"——后者会让
+一个刚部署、还没来得及设密码的实例在公网上裸奔。也可以用 `PERPDESK_PASSWORD`
+自行指定。
+
+日志位置取决于怎么跑的（注意**不在 journal 里**，`deploy/perpdesk.service`
+把 stdout 重定向到了文件）：
+
+```bash
+grep "已生成站点登录口令" /var/log/perpdesk/api.log   # systemd 部署
+./scripts/perpdesk.sh logs                            # 本地运行
+```
 
 WebSocket 单独做鉴权：HTTP 中间件管不到 WS 握手，只靠中间件的话那条流
 就是整站唯一一个不需要登录的数据出口。
