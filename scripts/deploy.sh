@@ -21,6 +21,7 @@ if [[ "$MODE" == "--local" ]]; then
   rsync -az --no-owner --no-group --delete \
     --exclude '.git' --exclude 'node_modules' --exclude '.venv' \
     --exclude 'data' --exclude '.run' --exclude 'backend/.env' \
+    --exclude '*.key' \
     --exclude 'frontend/dist' \
     ./ "$HOST:$REMOTE_DIR/"
 else

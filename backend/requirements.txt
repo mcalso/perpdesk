@@ -2,3 +2,5 @@ fastapi==0.118.0
 uvicorn[standard]==0.37.0
 httpx==0.28.1
 websockets==15.0.1
+# 凭据加密（AES-256-GCM）。标准库没有任何对称加密实现。
+cryptography==50.0.1

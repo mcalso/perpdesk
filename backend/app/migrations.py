@@ -191,10 +191,38 @@ def _m003_accounts(conn: sqlite3.Connection) -> None:
     _exec_all(conn, _M003_INCOME)
 
 
+_M004_CREDENTIALS = (
+    """CREATE TABLE IF NOT EXISTS credentials (
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        name       TEXT NOT NULL,        -- 'api_key' / 'api_secret' / 'passphrase'
+        nonce      BLOB NOT NULL,
+        ciphertext BLOB NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (account_id, name)
+    )""",
+)
+
+
+def _m004_credentials(conn: sqlite3.Connection) -> None:
+    """账户凭据的密文存放处。
+
+    做成键值表而不是往 accounts 加几列：不同交易所需要的字段不一样，
+    OKX 除了 key/secret 还要 passphrase，加一家就加一列不是办法。
+
+    ON DELETE CASCADE 是刻意的，且与 trades 的处理相反：删账户应当把它的
+    凭据一并抹掉（留着是纯风险），但不能顺手删掉历史成交——那边用默认的
+    RESTRICT，账户下还有成交就根本删不掉。
+
+    明文不进这张表，加解密在 vault.py，主密钥在库外。
+    """
+    _exec_all(conn, _M004_CREDENTIALS)
+
+
 MIGRATIONS: list[tuple[int, str, Apply]] = [
     (1, "baseline", _m001_baseline),
     (2, "trades.realized_pnl", _m002_trades_realized_pnl),
     (3, "accounts", _m003_accounts),
+    (4, "credentials", _m004_credentials),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

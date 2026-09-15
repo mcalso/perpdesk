@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import account as account_api
-from . import binance, config, db, icons
+from . import binance, config, db, icons, vault
 from .hub import hub
 from .routers import account, market, portfolio, watchlist
 
@@ -28,6 +28,14 @@ log = logging.getLogger("perpdesk")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.connect()
+    # 老用户的凭据还在 backend/.env 里，首次启动时接管进加密存储。
+    # 已经有凭据的账户不会被覆盖，.env 文件本身也不动。
+    try:
+        vault.import_from_env(db.default_account_id())
+    except vault.VaultError as exc:
+        # 凭据出问题不该拖垮整个服务：行情不依赖它，照常可用；
+        # 账户那一侧会显示"未配置"，日志里说清到底是什么原因。
+        log.error("凭据存储不可用，账户功能将不可用：%s", exc)
     await hub.start()
     # 实时订阅 = 自选 ∪ 持仓。持仓估值最需要准确及时，不能只靠 REST 轮询。
     def _refresh_ws_symbols(position_symbols: list[str] | None = None) -> None:

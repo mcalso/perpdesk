@@ -93,6 +93,56 @@ def _acct(account_id: int | None) -> int:
     return default_account_id() if account_id is None else account_id
 
 
+# ---------- credentials ----------
+#
+# 只存密文。加解密与主密钥在 vault.py —— 这一层刻意不认识明文，
+# 免得哪天有人图省事在这里加个"顺手解个密"的便利函数。
+
+def set_credential(account_id: int, name: str, nonce: bytes, ciphertext: bytes) -> None:
+    conn = connect()
+    conn.execute(
+        """INSERT INTO credentials (account_id, name, nonce, ciphertext, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (account_id, name) DO UPDATE SET
+               nonce = excluded.nonce,
+               ciphertext = excluded.ciphertext,
+               updated_at = excluded.updated_at""",
+        (account_id, name, nonce, ciphertext, int(time.time() * 1000)),
+    )
+    conn.commit()
+
+
+def get_credential(account_id: int, name: str) -> dict[str, Any] | None:
+    r = connect().execute(
+        "SELECT nonce, ciphertext, updated_at FROM credentials "
+        "WHERE account_id = ? AND name = ?",
+        (account_id, name),
+    ).fetchone()
+    return dict(r) if r else None
+
+
+def count_credentials() -> int:
+    """全库密文条数。vault 用它判断"主密钥不见了"还是"本来就是新库"。"""
+    try:
+        return int(connect().execute("SELECT COUNT(*) FROM credentials").fetchone()[0])
+    except sqlite3.OperationalError:
+        return 0        # 表还没建（迁移之前）
+
+
+def credential_names(account_id: int) -> list[str]:
+    return [r["name"] for r in connect().execute(
+        "SELECT name FROM credentials WHERE account_id = ? ORDER BY name",
+        (account_id,))]
+
+
+def delete_credential(account_id: int, name: str) -> bool:
+    conn = connect()
+    cur = conn.execute("DELETE FROM credentials WHERE account_id = ? AND name = ?",
+                       (account_id, name))
+    conn.commit()
+    return cur.rowcount > 0
+
+
 # ---------- watchlist ----------
 
 def list_watchlist() -> list[str]:

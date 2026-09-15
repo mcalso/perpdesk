@@ -2,7 +2,7 @@
 
 安全边界（刻意约束，不要放宽）：
   * 只实现 GET 查询，不实现任何下单/撤单/改杠杆接口；
-  * 凭据只从 backend/.env 读取，绝不落日志、绝不返回给前端；
+  * 凭据从加密存储读取（见 vault.py），绝不落日志、绝不返回给前端；
   * secret 缺失时所有接口返回"未配置"，而不是抛错刷屏。
 """
 import asyncio
@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from . import config
+from . import config, db, vault
 
 log = logging.getLogger("perpdesk.account")
 
@@ -26,13 +26,24 @@ class NotConfigured(RuntimeError):
     """缺少 API key / secret。"""
 
 
-def credentials() -> tuple[str, str]:
-    env = config.load_env()
-    return env.get("BINANCE_API_KEY", ""), env.get("BINANCE_API_SECRET", "")
+def credentials(account_id: int | None = None) -> tuple[str, str]:
+    """某账户的 key/secret 明文。
+
+    只在签名请求时用，拿到就用完即弃 —— 不要缓存到模块变量里，
+    也不要传给任何会被序列化的地方。
+    """
+    acct = db.default_account_id() if account_id is None else account_id
+    try:
+        return vault.get(acct, "api_key") or "", vault.get(acct, "api_secret") or ""
+    except vault.VaultError as exc:
+        # 解不开要吵，不能静默退回"未配置" —— 那会让人以为是没填，
+        # 实际是主密钥换了、库里的凭据全成了废数据。
+        log.error("账户 %s 的凭据解密失败：%s", acct, exc)
+        return "", ""
 
 
-def configured() -> bool:
-    key, secret = credentials()
+def configured(account_id: int | None = None) -> bool:
+    key, secret = credentials(account_id)
     return bool(key and secret)
 
 

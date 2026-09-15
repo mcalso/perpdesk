@@ -7,6 +7,13 @@ DATA_DIR = Path(os.getenv("PERPDESK_DATA_DIR", BASE_DIR / "data"))
 DB_PATH = DATA_DIR / "perpdesk.db"
 ENV_PATH = BASE_DIR / "backend" / ".env"
 
+# 凭据加密的主密钥。默认放在 backend/ 下而不是 data/ 下，是为了让 data/ 里的
+# 数据库备份单独泄露时仍然是密文——密钥跟着备份一起走，加密就白做了。
+# 设了 PERPDESK_MASTER_KEY（十六进制）就完全不落盘，代价是每次重启要重新提供。
+MASTER_KEY_PATH = Path(
+    os.getenv("PERPDESK_MASTER_KEY_FILE", BASE_DIR / "backend" / ".master.key"))
+MASTER_KEY_ENV = os.getenv("PERPDESK_MASTER_KEY", "")
+
 # Binance U 本位合约。直连比走代理快，客户端一律 trust_env=False。
 FAPI_BASE = "https://fapi.binance.com"
 
