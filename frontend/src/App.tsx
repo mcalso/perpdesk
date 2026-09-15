@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { AccountSwitcher } from './components/AccountSwitcher'
 import { api, type HubStatus } from './lib/api'
 
 function StatusChip() {
@@ -56,6 +57,7 @@ export default function App() {
           <NavLink to="/portfolio" viewTransition
                    className={({ isActive }) => (isActive ? 'active' : '')}>持仓盈亏</NavLink>
         </nav>
+        <AccountSwitcher />
         <StatusChip />
       </header>
       <Outlet />

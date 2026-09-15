@@ -1,3 +1,7 @@
+import { activeAccount, type AccountRow } from './account'
+
+export type { AccountRow }
+
 export type AssetClass = 'crypto' | 'us_equity' | 'hk_equity' | 'index' | string
 
 export interface Ticker {
@@ -73,6 +77,19 @@ export interface PortfolioSummary {
   allocation: { symbol: string; value: number; weight: number; side: string }[]
 }
 
+/**
+ * 给账户相关的请求附上当前账户号。
+ *
+ * 统一在这里加，而不是让每个调用点自己传：漏掉一处的表现是"显示了另一个
+ * 账户的数据"，页面不会报错，数字看着也正常——正是最难发现的那类问题。
+ */
+function acct(q: URLSearchParams): URLSearchParams {
+  const id = activeAccount.get()
+  if (id !== null) q.set('account_id', String(id))
+  return q
+}
+
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -119,33 +136,47 @@ export const api = {
   removeWatch: (symbol: string) =>
     req<{ ok: boolean; symbols: string[] }>(`/api/watchlist/${symbol}`, { method: 'DELETE' }),
 
+  accounts: () => req<{ rows: AccountRow[]; defaultId: number }>('/api/account/accounts'),
+
   trades: (opts: { symbol?: string; limit?: number; offset?: number } = {}) => {
     const q = new URLSearchParams()
     if (opts.symbol) q.set('symbol', opts.symbol)
     q.set('limit', String(opts.limit ?? 200))
     q.set('offset', String(opts.offset ?? 0))
     return req<{ rows: Trade[]; total: number; limit: number; offset: number }>(
-      `/api/portfolio/trades?${q}`)
+      `/api/portfolio/trades?${acct(q)}`)
   },
   addTrade: (t: Omit<Trade, 'id' | 'created_at' | 'traded_at'> & { traded_at?: number | null }) =>
-    req<{ ok: boolean; id: number }>('/api/portfolio/trades', {
+    req<{ ok: boolean; id: number }>(`/api/portfolio/trades?${acct(new URLSearchParams())}`, {
       method: 'POST', body: JSON.stringify(t),
     }),
   deleteTrade: (id: number) =>
-    req<{ ok: boolean }>(`/api/portfolio/trades/${id}`, { method: 'DELETE' }),
+    req<{ ok: boolean }>(`/api/portfolio/trades/${id}?${acct(new URLSearchParams())}`,
+                         { method: 'DELETE' }),
   importCsv: (csv_text: string) =>
     req<{ inserted: number; failed: number; errors: { line: number; error: string }[] }>(
-      '/api/portfolio/import', { method: 'POST', body: JSON.stringify({ csv_text }) }),
+      `/api/portfolio/import?${acct(new URLSearchParams())}`,
+      { method: 'POST', body: JSON.stringify({ csv_text }) }),
 
-  summary: (days?: number | null) =>
-    req<PortfolioSummary>(`/api/portfolio/summary${days ? `?days=${days}` : ''}`),
+  summary: (days?: number | null) => {
+    const q = new URLSearchParams()
+    if (days) q.set('days', String(days))
+    return req<PortfolioSummary>(`/api/portfolio/summary?${acct(q)}`)
+  },
 
-  accountStatus: () => req<AccountStatus>('/api/account/status'),
-  accountOverview: () => req<AccountOverview>('/api/account/overview'),
-  syncTrades: (days = 30) =>
-    req<{ inserted: number; skipped: number; symbols: string[] }>(
-      `/api/account/sync-trades?days=${days}`, { method: 'POST' }),
-  curve: (days?: number | null) =>
-    req<{ points: { t: number; realized: number }[]; from: number | null; to: number | null }>(
-      `/api/portfolio/curve${days ? `?days=${days}` : ''}`),
+  accountStatus: () =>
+    req<AccountStatus>(`/api/account/status?${acct(new URLSearchParams())}`),
+  accountOverview: () =>
+    req<AccountOverview>(`/api/account/overview?${acct(new URLSearchParams())}`),
+  syncTrades: (days = 30) => {
+    const q = new URLSearchParams({ days: String(days) })
+    return req<{ inserted: number; skipped: number; symbols: string[] }>(
+      `/api/account/sync-trades?${acct(q)}`, { method: 'POST' })
+  },
+  curve: (days?: number | null) => {
+    const q = new URLSearchParams()
+    if (days) q.set('days', String(days))
+    return req<{ points: { t: number; realized: number }[]; from: number | null; to: number | null }>(
+      `/api/portfolio/curve?${acct(q)}`)
+  },
 }

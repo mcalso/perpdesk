@@ -529,3 +529,13 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 }
+
+/* ---------- 账户切换 ---------- */
+.acct-switch select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  font-size: var(--fs-sm);
+  max-width: 190px;
+}
+.acct-switch select:hover { border-color: var(--border-lit); }

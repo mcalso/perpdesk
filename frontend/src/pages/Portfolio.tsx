@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
+import { useActiveAccount } from '../lib/account'
 import { AnimatedNumber } from '../components/AnimatedNumber'
 import { ExchangeAccount } from '../components/ExchangeAccount'
 import { SortHeader } from '../components/SortHeader'
@@ -38,6 +39,7 @@ function StatCard({ label, value, format, sub, cls, hero }: {
 }
 
 export default function Portfolio() {
+  const acct = useActiveAccount()
   const [sum, setSum] = useState<PortfolioSummary | null>(null)
   // 同上：区分「首次还没拉回来」和「拉回来了确实没记录」，
   // 否则后端不通时会一直显示骨架屏
@@ -72,7 +74,8 @@ export default function Portfolio() {
       setRange({ from: c.from, to: c.to })
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
     finally { setLoaded(true) }
-  }, [days, tradePage])
+    // acct 进依赖：切账户要重算，否则盈亏还是上一个账户的
+  }, [days, tradePage, acct])
 
   useEffect(() => {
     reload()

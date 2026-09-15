@@ -7,6 +7,7 @@ import { SortHeader } from './SortHeader'
 import { SymbolIcon } from './SymbolIcon'
 import { TableSkeleton } from './TableSkeleton'
 import { useSort } from '../lib/useSort'
+import { useActiveAccount } from '../lib/account'
 import { api, type AccountOverview, type AccountStatus } from '../lib/api'
 import { fmtPct, fmtPrice, fmtQty, fmtUsd, trendClass } from '../lib/format'
 
@@ -22,6 +23,7 @@ const PIE_COLORS = ['#2962ff', '#26a69a', '#ff9800', '#ab47bc', '#ef5350',
  */
 export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
   const nav = useNavigate()
+  const acct = useActiveAccount()
   const [status, setStatus] = useState<AccountStatus | null>(null)
   const [data, setData] = useState<AccountOverview | null>(null)
   const [err, setErr] = useState('')
@@ -40,9 +42,12 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
       setErr('')
     } catch (e) { setErr((e as Error).message) }
     finally { setLoaded(true) }
-  }, [])
+    // acct 进依赖：切账户要立刻重新拉，否则显示的还是上一个账户的持仓
+  }, [acct])
 
   useEffect(() => {
+    // 切账户时先清空，避免新账户数据到位前还挂着上一个账户的持仓
+    setData(null); setLoaded(false); setErr('')
     load()
     // 浮动盈亏在后端用 1 秒级的实时标记价本地重算，所以这里读得勤一点就能跳动；
     // 读的是后端缓存，多开几个标签页也不会放大对交易所的请求量
