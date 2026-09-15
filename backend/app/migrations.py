@@ -218,11 +218,40 @@ def _m004_credentials(conn: sqlite3.Connection) -> None:
     _exec_all(conn, _M004_CREDENTIALS)
 
 
+_M005_AUTH = (
+    # CHECK (id = 1) 把"单用户"写进 schema：这是自托管单人工具，
+    # 多租户意味着越权、会话劫持、用户枚举、密码重置链路，每一样都是
+    # 凭据泄露的新入口。约束写在这里，比写在注释里可靠。
+    """CREATE TABLE IF NOT EXISTS auth (
+        id            INTEGER PRIMARY KEY CHECK (id = 1),
+        password_hash BLOB NOT NULL,
+        salt          BLOB NOT NULL,
+        params        TEXT NOT NULL,      -- JSON，便于以后调 KDF 强度
+        updated_at    INTEGER NOT NULL
+    )""",
+    # 只存 token 的哈希，不存 token 本身 —— 库泄露不该等于会话被接管
+    """CREATE TABLE IF NOT EXISTS sessions (
+        token_hash BLOB PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        last_seen  INTEGER NOT NULL,
+        label      TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)",
+)
+
+
+def _m005_auth(conn: sqlite3.Connection) -> None:
+    """站点登录：单用户口令 + 服务端会话。"""
+    _exec_all(conn, _M005_AUTH)
+
+
 MIGRATIONS: list[tuple[int, str, Apply]] = [
     (1, "baseline", _m001_baseline),
     (2, "trades.realized_pnl", _m002_trades_realized_pnl),
     (3, "accounts", _m003_accounts),
     (4, "credentials", _m004_credentials),
+    (5, "auth", _m005_auth),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

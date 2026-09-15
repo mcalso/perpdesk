@@ -14,6 +14,12 @@ MASTER_KEY_PATH = Path(
     os.getenv("PERPDESK_MASTER_KEY_FILE", BASE_DIR / "backend" / ".master.key"))
 MASTER_KEY_ENV = os.getenv("PERPDESK_MASTER_KEY", "")
 
+# 站点登录口令。留空则首次启动自动生成一个并打进日志。
+AUTH_PASSWORD = os.getenv("PERPDESK_PASSWORD", "")
+# Cookie 的 Secure 标志。HTTP 下不能置位，否则浏览器根本不会回传 cookie；
+# 上了 HTTPS 一定要打开，nginx 会通过 X-Forwarded-Proto 告知，见 routers/auth.py。
+COOKIE_SECURE = os.getenv("PERPDESK_COOKIE_SECURE", "auto")
+
 # Binance U 本位合约。直连比走代理快，客户端一律 trust_env=False。
 FAPI_BASE = "https://fapi.binance.com"
 

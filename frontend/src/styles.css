@@ -539,3 +539,45 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
   max-width: 190px;
 }
 .acct-switch select:hover { border-color: var(--border-lit); }
+
+/* ---------- 登录 ---------- */
+.login-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  display: flex; flex-direction: column; gap: 12px;
+  width: 100%; max-width: 340px;
+  background: linear-gradient(165deg, #1b2130 0%, var(--panel) 60%);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 28px 26px; box-shadow: var(--shadow-3);
+  animation: rise .4s var(--ease) both;
+}
+.login-brand { font-size: var(--fs-xl); }
+.login-sub { font-size: 12px; margin: -4px 0 6px; line-height: 1.5; }
+.login-hint { font-size: 11px; line-height: 1.6; margin: 4px 0 0; }
+
+/* ---------- 账号菜单 ---------- */
+.acct-menu { position: relative; }
+.acct-pop {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
+  width: 290px; padding: 14px;
+  background: var(--panel-2); border: 1px solid var(--border-lit);
+  border-radius: var(--r-md); box-shadow: var(--shadow-3);
+  animation: rise .2s var(--ease) both;
+}
+.acct-pop-head {
+  font-size: var(--fs-sm); color: var(--text-dim);
+  letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px;
+}
+.acct-pop input { width: 100%; }
+.acct-sessions { max-height: 130px; overflow: auto; }
+.acct-session {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 11px; padding: 4px 0;
+  border-bottom: 1px solid rgba(36, 41, 56, .6);
+}
+.acct-ua {
+  color: var(--text-dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}

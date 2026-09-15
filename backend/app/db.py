@@ -93,6 +93,78 @@ def _acct(account_id: int | None) -> int:
     return default_account_id() if account_id is None else account_id
 
 
+# ---------- auth / sessions ----------
+
+def get_auth() -> dict[str, Any] | None:
+    r = connect().execute("SELECT * FROM auth WHERE id = 1").fetchone()
+    return dict(r) if r else None
+
+
+def set_auth(password_hash: bytes, salt: bytes, params: str) -> None:
+    conn = connect()
+    conn.execute(
+        """INSERT INTO auth (id, password_hash, salt, params, updated_at)
+           VALUES (1, ?, ?, ?, ?)
+           ON CONFLICT (id) DO UPDATE SET
+               password_hash = excluded.password_hash,
+               salt = excluded.salt,
+               params = excluded.params,
+               updated_at = excluded.updated_at""",
+        (password_hash, salt, params, int(time.time() * 1000)),
+    )
+    conn.commit()
+
+
+def add_session(token_hash: bytes, created_at: int, expires_at: int, label: str) -> None:
+    conn = connect()
+    conn.execute(
+        "INSERT OR REPLACE INTO sessions VALUES (?, ?, ?, ?, ?)",
+        (token_hash, created_at, expires_at, created_at, label),
+    )
+    conn.commit()
+
+
+def get_session(token_hash: bytes) -> dict[str, Any] | None:
+    r = connect().execute(
+        "SELECT * FROM sessions WHERE token_hash = ?", (token_hash,)).fetchone()
+    return dict(r) if r else None
+
+
+def touch_session(token_hash: bytes, now: int) -> None:
+    conn = connect()
+    conn.execute("UPDATE sessions SET last_seen = ? WHERE token_hash = ?", (now, token_hash))
+    conn.commit()
+
+
+def delete_session(token_hash: bytes) -> None:
+    conn = connect()
+    conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+    conn.commit()
+
+
+def delete_all_sessions() -> None:
+    conn = connect()
+    conn.execute("DELETE FROM sessions")
+    conn.commit()
+
+
+def purge_expired_sessions(now: int) -> int:
+    conn = connect()
+    cur = conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
+    conn.commit()
+    return cur.rowcount
+
+
+def list_sessions(now: int) -> list[dict[str, Any]]:
+    """未过期的会话。**不返回 token_hash** —— 它虽然是哈希，也没有露出去的必要。"""
+    return [
+        {"created_at": r["created_at"], "expires_at": r["expires_at"],
+         "last_seen": r["last_seen"], "label": r["label"]}
+        for r in connect().execute(
+            "SELECT * FROM sessions WHERE expires_at > ? ORDER BY last_seen DESC", (now,))
+    ]
+
+
 # ---------- credentials ----------
 #
 # 只存密文。加解密与主密钥在 vault.py —— 这一层刻意不认识明文，

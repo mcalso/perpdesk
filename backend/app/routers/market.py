@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from fastapi.responses import Response
 
 from .. import binance, icons
+from .. import auth
 from ..hub import hub
 
 router = APIRouter(prefix="/api/market", tags=["market"])
@@ -112,7 +113,14 @@ async def klines(
 
 @router.websocket("/ws")
 async def ws_tickers(ws: WebSocket) -> None:
-    """紧凑数组帧，1s 一推。字段顺序见 hub.compact_rows()。"""
+    """紧凑数组帧，1s 一推。字段顺序见 hub.compact_rows()。
+
+    鉴权必须在这里单独做：HTTP 中间件管不到 WebSocket 握手，
+    只靠中间件的话这条流就是整站唯一一个不需要登录的数据出口。
+    """
+    if not auth.validate(ws.cookies.get(auth.COOKIE_NAME)):
+        await ws.close(code=1008, reason="未登录")   # 1008 = policy violation
+        return
     await ws.accept()
     q = hub.subscribe()
     try:

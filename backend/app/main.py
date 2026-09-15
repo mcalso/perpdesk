@@ -8,15 +8,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import account as account_api
+from . import auth as auth_mod
 from . import binance, config, db, icons, vault
 from .hub import hub
-from .routers import account, market, portfolio, watchlist
+from .routers import account, auth, market, portfolio, watchlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,9 @@ async def lifespan(app: FastAPI):
     db.connect()
     # 老用户的凭据还在 backend/.env 里，首次启动时接管进加密存储。
     # 已经有凭据的账户不会被覆盖，.env 文件本身也不动。
+    # 没有口令就不鉴权是不行的：那会让一个刚部署、还没来得及设密码的实例
+    # 在公网上裸奔。首次启动生成一个打进日志，用户取走后自行修改。
+    auth_mod.ensure_password()
     try:
         vault.import_from_env(db.default_account_id())
     except vault.VaultError as exc:
@@ -76,6 +80,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 除少数几个白名单路径外，所有 /api 都要登录。
+# 白名单只放登录本身与健康检查 —— 健康检查不含任何账户信息，
+# 留着方便 systemd / 反代做存活探测。
+PUBLIC_PATHS = frozenset({
+    "/api/auth/me", "/api/auth/login", "/api/auth/logout", "/api/health",
+})
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path not in PUBLIC_PATHS:
+        if not auth_mod.validate(request.cookies.get(auth_mod.COOKIE_NAME)):
+            return JSONResponse({"detail": "未登录"}, status_code=401)
+    return await call_next(request)
+
+
+app.include_router(auth.router)
 app.include_router(market.router)
 app.include_router(account.router)
 app.include_router(watchlist.router)

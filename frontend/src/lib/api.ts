@@ -1,4 +1,5 @@
 import { activeAccount, type AccountRow } from './account'
+import { authState } from './auth'
 
 export type { AccountRow }
 
@@ -96,6 +97,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   })
   if (!res.ok) {
+    // 会话过期时把全局状态置为未登录，正在看的页面会自动退回登录页，
+    // 而不是满屏"请求失败"
+    if (res.status === 401) authState.set('out')
     let detail = `${res.status} ${res.statusText}`
     try {
       const body = await res.json()
@@ -107,6 +111,23 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  me: () => req<{ authenticated: boolean; hasPassword: boolean }>('/api/auth/me'),
+  login: (password: string) =>
+    req<{ ok: boolean }>('/api/auth/login', {
+      method: 'POST', body: JSON.stringify({ password }),
+    }),
+  logout: () => req<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  changePassword: (current: string, password: string) =>
+    req<{ ok: boolean; note: string }>('/api/auth/password', {
+      method: 'POST', body: JSON.stringify({ current, password }),
+    }),
+  sessions: () => req<{
+    rows: { created_at: number; expires_at: number; last_seen: number; label: string }[]
+    now: number
+  }>('/api/auth/sessions'),
+  revokeAllSessions: () =>
+    req<{ ok: boolean }>('/api/auth/sessions/revoke-all', { method: 'POST' }),
+
   health: () => req<{ ok: boolean; hub: HubStatus }>('/api/health'),
 
   tickers: (p: { sort?: string; desc?: boolean; limit?: number; search?: string } = {}) => {

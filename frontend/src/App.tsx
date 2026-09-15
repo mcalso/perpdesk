@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { AccountSwitcher } from './components/AccountSwitcher'
+import { Login } from './components/Login'
+import { SessionMenu } from './components/SessionMenu'
+import { authState, useAuthState } from './lib/auth'
 import { api, type HubStatus } from './lib/api'
 
 function StatusChip() {
@@ -43,6 +46,21 @@ function StatusChip() {
 }
 
 export default function App() {
+  const auth = useAuthState()
+
+  useEffect(() => {
+    // 启动时问一次登录状态。此后任何请求收到 401 也会把状态置回未登录
+    // （见 lib/api.ts），所以会话过期能自动退回登录页。
+    api.me()
+      .then((r) => authState.set(r.authenticated ? 'in' : 'out'))
+      .catch(() => authState.set('out'))
+  }, [])
+
+  // 未知状态时先不渲染：直接渲染主界面会先闪一下再跳登录页，
+  // 而且那一瞬间已经发出去一批必然 401 的请求
+  if (auth === 'unknown') return <div className="login-wrap" />
+  if (auth === 'out') return <Login />
+
   return (
     <div className="app">
       <header className="topbar">
@@ -59,6 +77,7 @@ export default function App() {
         </nav>
         <AccountSwitcher />
         <StatusChip />
+        <SessionMenu />
       </header>
       <Outlet />
     </div>
