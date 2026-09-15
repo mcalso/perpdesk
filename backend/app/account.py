@@ -63,10 +63,12 @@ async def close() -> None:
         _client = None
 
 
-async def _signed_get(path: str, params: dict | None = None) -> Any:
-    key, secret = credentials()
+async def _signed_get(path: str, params: dict | None = None,
+                      account_id: int | None = None) -> Any:
+    key, secret = credentials(account_id)
     if not key or not secret:
-        raise NotConfigured("backend/.env 里缺少 BINANCE_API_KEY / BINANCE_API_SECRET")
+        raise NotConfigured(
+            f"账户 {account_id if account_id is not None else '默认'} 没有可用的 API 凭据")
 
     payload = dict(params or {})
     payload["timestamp"] = int(time.time() * 1000)
@@ -83,9 +85,9 @@ async def _signed_get(path: str, params: dict | None = None) -> Any:
     return resp.json()
 
 
-async def balances() -> list[dict]:
+async def balances(account_id: int | None = None) -> list[dict]:
     """各币种钱包余额，只保留非零的。"""
-    rows = await _signed_get("/fapi/v2/balance")
+    rows = await _signed_get("/fapi/v2/balance", account_id=account_id)
     out = []
     for r in rows:
         wallet = float(r.get("balance") or 0)
@@ -99,9 +101,9 @@ async def balances() -> list[dict]:
     return sorted(out, key=lambda x: -abs(x["balance"]))
 
 
-async def positions() -> list[dict]:
+async def positions(account_id: int | None = None) -> list[dict]:
     """当前真实持仓（来自交易所，非本地流水推算）。"""
-    rows = await _signed_get("/fapi/v2/positionRisk")
+    rows = await _signed_get("/fapi/v2/positionRisk", account_id=account_id)
     out = []
     for r in rows:
         qty = float(r.get("positionAmt") or 0)
@@ -126,7 +128,8 @@ async def positions() -> list[dict]:
 
 async def user_trades(symbol: str, start_ms: int | None = None,
                       end_ms: int | None = None, limit: int = 1000,
-                      from_id: int | None = None) -> list[dict]:
+                      from_id: int | None = None,
+                      account_id: int | None = None) -> list[dict]:
     """某个标的的成交明细。Binance 要求必须指定 symbol，一次最多 1000 条。
 
     传 from_id 时按 tradeId 递增取（推荐，见 user_trades_all）；
@@ -140,7 +143,7 @@ async def user_trades(symbol: str, start_ms: int | None = None,
             params["startTime"] = start_ms
         if end_ms:
             params["endTime"] = end_ms
-    rows = await _signed_get("/fapi/v1/userTrades", params)
+    rows = await _signed_get("/fapi/v1/userTrades", params, account_id=account_id)
     return [
         {
             "symbol": r["symbol"],
@@ -158,7 +161,8 @@ async def user_trades(symbol: str, start_ms: int | None = None,
     ]
 
 
-async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict]:
+async def user_trades_all(symbol: str, start_ms: int | None = None,
+                          account_id: int | None = None) -> list[dict]:
     """拉取某标的的全部成交，按 tradeId 分页。
 
     **必须用 fromId 分页，不能用时间游标。** 按 `max(time)+1` 往前滚会跳过同一
@@ -171,7 +175,8 @@ async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict
     out: dict[int, dict] = {}
     from_id = 0
     for _ in range(200):                      # 20 万笔封顶，防御性上限
-        rows = await user_trades(symbol, from_id=from_id, limit=1000)
+        rows = await user_trades(symbol, from_id=from_id, limit=1000,
+                                 account_id=account_id)
         if not rows:
             break
         for r in rows:
@@ -184,7 +189,8 @@ async def user_trades_all(symbol: str, start_ms: int | None = None) -> list[dict
 
 
 async def income_range(start_ms: int, end_ms: int | None = None,
-                       income_type: str | None = None) -> list[dict]:
+                       income_type: str | None = None,
+                       account_id: int | None = None) -> list[dict]:
     """拉取一段时间的资金流水，用 page 翻页。
 
     两个踩过的坑：
@@ -198,7 +204,8 @@ async def income_range(start_ms: int, end_ms: int | None = None,
     end_ms = end_ms or int(time.time() * 1000)
     seen: dict[Any, dict] = {}
     for page in range(1, 201):               # 20 万条封顶
-        rows = await income(income_type, start_ms, end_ms, page=page, limit=1000)
+        rows = await income(income_type, start_ms, end_ms, page=page, limit=1000,
+                            account_id=account_id)
         if not rows:
             break
         for r in rows:
@@ -211,7 +218,7 @@ async def income_range(start_ms: int, end_ms: int | None = None,
 
 async def income(income_type: str | None = None, start_ms: int | None = None,
                  end_ms: int | None = None, page: int | None = None,
-                 limit: int = 1000) -> list[dict]:
+                 limit: int = 1000, account_id: int | None = None) -> list[dict]:
     """资金流水：REALIZED_PNL / FUNDING_FEE / COMMISSION / TRANSFER 等。"""
     params: dict[str, Any] = {"limit": min(limit, 1000)}
     if income_type:
@@ -222,7 +229,7 @@ async def income(income_type: str | None = None, start_ms: int | None = None,
         params["endTime"] = end_ms
     if page:
         params["page"] = page
-    rows = await _signed_get("/fapi/v1/income", params)
+    rows = await _signed_get("/fapi/v1/income", params, account_id=account_id)
     return [
         {
             "symbol": r.get("symbol") or "",
@@ -246,7 +253,8 @@ class AccountCache:
     拉取失败时保留上一份快照，前端据 ageSec 自行判断新鲜度。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, account_id: int) -> None:
+        self.account_id = account_id
         self.balances: list[dict] = []
         self.positions: list[dict] = []
         # 持仓变化时回调，让行情中心把这些标的加入实时订阅
@@ -256,7 +264,8 @@ class AccountCache:
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        self._task = asyncio.create_task(self._loop(), name="account-poll")
+        self._task = asyncio.create_task(
+            self._loop(), name=f"account-poll-{self.account_id}")
 
     async def stop(self) -> None:
         if self._task:
@@ -269,12 +278,12 @@ class AccountCache:
 
     async def _loop(self) -> None:
         while True:
-            # 每轮都重读凭据：用户可能在服务运行中才把 secret 填进 .env
-            if configured():
+            # 每轮都重读凭据：用户可能在服务运行中才把凭据填进去
+            if configured(self.account_id):
                 try:
-                    self.balances = await balances()
+                    self.balances = await balances(self.account_id)
                     prev = {p["symbol"] for p in self.positions}
-                    self.positions = await positions()
+                    self.positions = await positions(self.account_id)
                     self.last_ok = time.time()
                     self.last_error = ""
                     now_syms = {p["symbol"] for p in self.positions}
@@ -284,7 +293,8 @@ class AccountCache:
                     raise
                 except Exception as exc:
                     self.last_error = str(exc)[:200]
-                    log.warning("account snapshot refresh failed: %s", self.last_error)
+                    log.warning("账户 %s 快照刷新失败：%s",
+                                self.account_id, self.last_error)
             await asyncio.sleep(config.ACCOUNT_POLL_INTERVAL)
 
     def snapshot(self, marks: dict[str, float] | None = None) -> dict:
@@ -322,6 +332,7 @@ class AccountCache:
         # 权益 = 钱包余额 + 实时浮盈（余额本身只在成交/结算时变）
         wallet = sum(b["balance"] for b in self.balances if b["asset"] in ("USDT", "USDC"))
         return {
+            "accountId": self.account_id,
             "balances": self.balances,
             "positions": positions,
             "equity": wallet + live_unrealized,
@@ -333,12 +344,74 @@ class AccountCache:
             "pollInterval": config.ACCOUNT_POLL_INTERVAL,
         }
 
-cache = AccountCache()
+class CacheRegistry:
+    """每个启用账户一份快照轮询。
+
+    账户在运行期可增删，所以注册表要跟着变：`sync()` 对照 accounts 表起停任务。
+    已存在的缓存**不重建** —— 重建会丢掉上一份快照，界面上表现为持仓瞬间
+    清空又冒出来，而且会白白多打一轮交易所接口。
+
+    权重提醒：每个账户各自轮询 balance + positionRisk（各权重 5），
+    按 ACCOUNT_POLL_INTERVAL 计算，账户数乘上去就是总消耗。
+    签名接口的权重按 API key 计，不同账户互不挤占；但出口 IP 的总限额是共享的。
+    """
+
+    def __init__(self) -> None:
+        self._caches: dict[int, AccountCache] = {}
+        # 任一账户持仓变化时回调，传入所有账户持仓标的的并集
+        self.on_positions: Any = None
+
+    def ids(self) -> list[int]:
+        return sorted(self._caches)
+
+    def get(self, account_id: int | None = None) -> AccountCache:
+        """取某账户的缓存。account_id 为 None 时给默认账户。
+
+        账户存在但还没起轮询（刚建出来）时临时建一个空缓存返回，
+        让界面显示"加载中"而不是 500。
+        """
+        acct = db.default_account_id() if account_id is None else account_id
+        if acct not in self._caches:
+            self._caches[acct] = AccountCache(acct)
+        return self._caches[acct]
+
+    def position_symbols(self) -> list[str]:
+        """所有账户持仓标的的并集 —— 实时订阅要覆盖到每一个。"""
+        syms: set[str] = set()
+        for c in self._caches.values():
+            syms |= {p["symbol"] for p in c.positions}
+        return sorted(syms)
+
+    def _fanout(self, _changed: list[str] | None = None) -> None:
+        if self.on_positions:
+            self.on_positions(self.position_symbols())
+
+    async def sync(self) -> None:
+        """对照 accounts 表起停轮询任务。新增/停用账户后调用。"""
+        want = {a["id"] for a in db.list_accounts(enabled_only=True)}
+        for acct in want - set(self._caches):
+            cache = self._caches.setdefault(acct, AccountCache(acct))
+            cache.on_positions = self._fanout
+            await cache.start()
+            log.info("账户 %s 开始轮询", acct)
+        for acct in set(self._caches) - want:
+            await self._caches.pop(acct).stop()
+            log.info("账户 %s 停止轮询", acct)
+        self._fanout()
+
+    async def stop_all(self) -> None:
+        for cache in list(self._caches.values()):
+            await cache.stop()
+        self._caches.clear()
+
+
+registry = CacheRegistry()
 
 
 # ---------- 历史成交导出（超出 userTrades 保留期的唯一途径） ----------
 
-async def request_trade_export(start_ms: int, end_ms: int) -> str:
+async def request_trade_export(start_ms: int, end_ms: int,
+                               account_id: int | None = None) -> str:
     """申请异步导出成交历史，返回 downloadId。
 
     为什么需要它：`userTrades` 即便用 fromId=0 也只覆盖一段保留期，
@@ -349,13 +422,16 @@ async def request_trade_export(start_ms: int, end_ms: int) -> str:
     注意：该接口权重高且**每月仅允许 5 次**，不要放进定时任务。
     """
     data = await _signed_get("/fapi/v1/trade/asyn",
-                             {"startTime": start_ms, "endTime": end_ms})
+                             {"startTime": start_ms, "endTime": end_ms},
+                             account_id=account_id)
     return str(data.get("downloadId") or "")
 
 
-async def get_export_url(download_id: str) -> str | None:
+async def get_export_url(download_id: str,
+                         account_id: int | None = None) -> str | None:
     """查询导出任务；未完成返回 None。"""
-    data = await _signed_get("/fapi/v1/trade/asyn/id", {"downloadId": download_id})
+    data = await _signed_get("/fapi/v1/trade/asyn/id", {"downloadId": download_id},
+                             account_id=account_id)
     if data.get("status") == "completed" and data.get("url"):
         return data["url"]
     return None

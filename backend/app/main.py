@@ -37,16 +37,18 @@ async def lifespan(app: FastAPI):
         # 账户那一侧会显示"未配置"，日志里说清到底是什么原因。
         log.error("凭据存储不可用，账户功能将不可用：%s", exc)
     await hub.start()
-    # 实时订阅 = 自选 ∪ 持仓。持仓估值最需要准确及时，不能只靠 REST 轮询。
+    # 实时订阅 = 自选 ∪ 全部账户的持仓。持仓估值最需要准确及时，
+    # 不能只靠 REST 轮询；多账户时并集里少一个标的，那个仓位的浮盈就是滞后的。
     def _refresh_ws_symbols(position_symbols: list[str] | None = None) -> None:
         syms = set(db.list_watchlist())
-        syms |= set(position_symbols or [p["symbol"] for p in account_api.cache.positions])
+        syms |= set(position_symbols if position_symbols is not None
+                    else account_api.registry.position_symbols())
         hub.set_ws_symbols(sorted(syms))
 
     hub.on_watchlist_change = _refresh_ws_symbols
-    account_api.cache.on_positions = _refresh_ws_symbols
+    account_api.registry.on_positions = _refresh_ws_symbols
     _refresh_ws_symbols([])
-    await account_api.cache.start()
+    await account_api.registry.sync()
     # 按成交额从高到低预热，热门标的先有图
     prewarm_task = asyncio.create_task(
         icons.prewarm(lambda: [r["symbol"] for r in
@@ -56,7 +58,7 @@ async def lifespan(app: FastAPI):
     log.info("perpdesk backend ready: %s", hub.status())
     yield
     prewarm_task.cancel()
-    await account_api.cache.stop()
+    await account_api.registry.stop_all()
     await hub.stop()
     await binance.close()
     await icons.close()

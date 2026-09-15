@@ -41,6 +41,18 @@ class ImportIn(BaseModel):
     csv_text: str = Field(description="表头: symbol,side,qty,price,fee,traded_at,note")
 
 
+# 所有接口都接受 ?account=<id>，省略时落到默认账户。
+AccountQ = Query(None, description="账户 id，省略则用默认账户")
+
+
+def _resolve(account_id: int | None) -> int:
+    if account_id is None:
+        return db.default_account_id()
+    if db.get_account(account_id) is None:
+        raise HTTPException(404, f"账户 {account_id} 不存在")
+    return account_id
+
+
 def _marks() -> dict[str, float]:
     return hub.mark_prices()
 
@@ -50,28 +62,32 @@ async def list_trades(
     symbol: str | None = None,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    account_id: int | None = AccountQ,
 ) -> dict:
     """成交流水，按时间倒序分页。"""
-    rows, total = db.page_trades(symbol.upper() if symbol else None, limit, offset)
+    acct = _resolve(account_id)
+    rows, total = db.page_trades(symbol.upper() if symbol else None, limit, offset,
+                                 account_id=acct)
     return {"rows": rows, "total": total, "limit": limit, "offset": offset}
 
 
 @router.post("/trades")
-async def add_trade(body: TradeIn) -> dict:
+async def add_trade(body: TradeIn, account_id: int | None = AccountQ) -> dict:
     ts = body.traded_at or int(time.time() * 1000)
-    tid = db.add_trade(body.symbol, body.side, body.qty, body.price, body.fee, ts, body.note)
+    tid = db.add_trade(body.symbol, body.side, body.qty, body.price, body.fee, ts,
+                       body.note, account_id=_resolve(account_id))
     return {"ok": True, "id": tid}
 
 
 @router.delete("/trades/{trade_id}")
-async def delete_trade(trade_id: int) -> dict:
-    if not db.delete_trade(trade_id):
+async def delete_trade(trade_id: int, account_id: int | None = AccountQ) -> dict:
+    if not db.delete_trade(trade_id, account_id=_resolve(account_id)):
         raise HTTPException(404, "trade not found")
     return {"ok": True}
 
 
 @router.post("/import")
-async def import_csv(body: ImportIn) -> dict:
+async def import_csv(body: ImportIn, account_id: int | None = AccountQ) -> dict:
     """容错导入：逐行校验，好行入库，坏行原样报回，不做全量回滚。"""
     reader = csv.DictReader(io.StringIO(body.csv_text.strip()))
     if not reader.fieldnames or "symbol" not in reader.fieldnames:
@@ -99,7 +115,7 @@ async def import_csv(body: ImportIn) -> dict:
         except Exception as exc:
             errors.append({"line": i, "error": str(exc), "raw": raw})
 
-    inserted = db.add_trades_bulk(rows) if rows else 0
+    inserted = db.add_trades_bulk(rows, account_id=_resolve(account_id)) if rows else 0
     return {"inserted": inserted, "failed": len(errors), "errors": errors[:20]}
 
 
@@ -121,12 +137,16 @@ def _parse_ts(s: str) -> int:
 _calc_cache: dict[tuple, Any] = {}
 
 
-def _cached(kind: str, days: int | None, build):
-    key = (kind, db.trades_version(), days)
+def _cached(kind: str, days: int | None, account_id: int, build):
+    key = (account_id, kind, db.trades_version(account_id), days)
     if key not in _calc_cache:
-        _calc_cache.clear()          # 版本变了旧条目就没用了，整体丢弃
+        # 只清这个账户的旧条目：整体清空的话，A 账户同步一次会把 B 账户
+        # 算好的结果一起丢掉，白白重算
+        for stale in [k for k in _calc_cache if k[0] == account_id]:
+            del _calc_cache[stale]
         _calc_cache[key] = build()
     return _calc_cache[key]
+
 
 
 def _since(days: int | None) -> int | None:
@@ -136,11 +156,13 @@ def _since(days: int | None) -> int | None:
 
 @router.get("/summary")
 async def summary(days: int | None = Query(None, ge=1, le=3650,
-                                           description="只统计最近 N 天，留空为全部历史")) -> dict:
+                                           description="只统计最近 N 天，留空为全部历史"),
+                  account_id: int | None = AccountQ) -> dict:
+    acct = _resolve(account_id)
     since = _since(days)
     # 持仓估值要用实时标记价，所以缓存的是回放结果而非最终响应
-    result = _cached("summary", days,
-                     lambda: pnl.build_summary(db.list_trades(), {}, since=since))
+    result = _cached("summary", days, acct,
+                     lambda: pnl.build_summary(db.list_trades(account_id=acct), {}, since=since))
     marks = _marks()
     for p in result["positions"]:
         mark = marks.get(p["symbol"], 0.0)
@@ -151,8 +173,8 @@ async def summary(days: int | None = Query(None, ge=1, le=3650,
 
     # 资金费单列：它不出现在成交记录里，但对长期/高杠杆持仓是实打实的损益，
     # 漏掉会让统计系统性偏乐观。已实现盈亏仍只算平仓部分，两者不混。
-    per_symbol = db.income_totals(since)
-    totals = db.income_by_type(since)
+    per_symbol = db.income_totals(since, account_id=acct)
+    totals = db.income_by_type(since, account_id=acct)
     for p in result["positions"]:
         p["funding"] = (per_symbol.get(p["symbol"]) or {}).get("FUNDING_FEE", 0.0)
 
@@ -166,6 +188,7 @@ async def summary(days: int | None = Query(None, ge=1, le=3650,
 
     s["days"] = days
     s["rangeFrom"] = since
+    s["accountId"] = acct
     result["allocation"] = _allocation(result["positions"])
     return result
 
@@ -174,14 +197,17 @@ async def summary(days: int | None = Query(None, ge=1, le=3650,
 async def curve(
     days: int | None = Query(None, ge=1, le=3650),
     points: int = Query(600, ge=50, le=5000, description="最多返回多少个点，0 表示不抽稀"),
+    account_id: int | None = AccountQ,
 ) -> dict:
     """已实现盈亏曲线。days 给定时输出区间损益（起点归零）。
 
     默认抽稀到 600 个点：原始曲线可达数千点（约数百 KB），传输与渲染都很慢，
     而抽稀保留了每段极值，视觉上看不出差别。
     """
+    acct = _resolve(account_id)
     since = _since(days)
-    full = _cached("curve", days, lambda: pnl.equity_curve(db.list_trades(), since=since))
+    full = _cached("curve", days, acct,
+                   lambda: pnl.equity_curve(db.list_trades(account_id=acct), since=since))
     shown = pnl.downsample(full, points) if points else full
     return {
         "points": shown,
