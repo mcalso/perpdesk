@@ -65,20 +65,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
     finally { setBusy(false) }
   }
 
-  if (status && !status.configured) {
-    return (
-      <div className="panel">
-        <div className="panel-head">交易所账户</div>
-        <div className="panel-body muted">
-          未配置 API 凭据（{status.hasKey ? '缺 secret' : '缺 key'}）。
-          在 <code>backend/.env</code> 填入 <code>BINANCE_API_KEY</code> 与{' '}
-          <code>BINANCE_API_SECRET</code> 后自动启用。只读即可，不需要交易权限。
-        </div>
-      </div>
-    )
-  }
-
-  const usdt = data?.balances.find((b) => b.asset === 'USDT')
+  const usdt = data?.balances?.find((b) => b.asset === 'USDT')
   const pie = useMemo(
     () => (data?.positions || []).map((p) => ({
       symbol: p.symbol, abs: p.notional, weight: p.weight, unrealized: p.unrealized,
@@ -100,6 +87,24 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
     [data],
   )
   const { sorted, sortKey, sortDir, toggle } = useSort(rows, 'notional')
+
+  // 这个提前 return 必须待在所有 hook 之后。
+  // 放在前面的话：status 初始为 null 走完 11 个 hook，等接口返回
+  // configured:false 时提前 return 生效，hook 数掉到 6，React 直接抛
+  // "Rendered fewer hooks than expected" 白屏 —— 也就是每一个还没配
+  // 凭据的新用户打开持仓页都会看到的东西。
+  if (status && !status.configured) {
+    return (
+      <div className="panel">
+        <div className="panel-head">交易所账户</div>
+        <div className="panel-body muted">
+          未配置 API 凭据（{status.hasKey ? '缺 secret' : '缺 key'}）。
+          在 <code>backend/.env</code> 填入 <code>BINANCE_API_KEY</code> 与{' '}
+          <code>BINANCE_API_SECRET</code> 后自动启用。只读即可，不需要交易权限。
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -158,7 +163,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
         </div>
         {err && <div className="msg err" style={{ margin: 12 }}>{err}</div>}
         {syncMsg && <div className="msg info" style={{ margin: 12 }}>{syncMsg}</div>}
-        {data?.positions.length ? (
+        {data?.positions?.length ? (
           <table className="cards">
             <thead>
               <tr>

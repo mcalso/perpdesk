@@ -137,8 +137,9 @@ def _parse_ts(s: str) -> int:
 _calc_cache: dict[tuple, Any] = {}
 
 
-def _cached(kind: str, days: int | None, account_id: int, build):
-    key = (account_id, kind, db.trades_version(account_id), days)
+def _cached(kind: str, variant, account_id: int, build):
+    """variant 是除账户与成交版本之外的一切参数（区间天数、时区……）。"""
+    key = (account_id, kind, db.trades_version(account_id), variant)
     if key not in _calc_cache:
         # 只清这个账户的旧条目：整体清空的话，A 账户同步一次会把 B 账户
         # 算好的结果一起丢掉，白白重算
@@ -217,6 +218,44 @@ async def curve(
         "from": full[0]["t"] if full else None,
         "to": full[-1]["t"] if full else None,
         "final": full[-1]["realized"] if full else 0.0,
+    }
+
+
+@router.get("/daily")
+async def daily(
+    days: int | None = Query(None, ge=1, le=3650),
+    tz_offset_min: int = Query(0, ge=-840, le=840,
+                               description="本地时区相对 UTC 的分钟偏移，东八区传 480"),
+    account_id: int | None = AccountQ,
+) -> dict:
+    """按自然日聚合的盈亏 / 手续费 / 资金费 / 成交笔数。
+
+    日线柱、累计手续费、交易频次三张图都吃这一份数据，合成一个接口返回，
+    省掉三次回放。
+    """
+    acct = _resolve(account_id)
+    since = _since(days)
+    rows = _cached("daily", (days, tz_offset_min), acct,
+                   lambda: pnl.daily_buckets(db.list_trades(account_id=acct),
+                                             since, tz_offset_min))
+    # 资金费不在成交里，单独按同样的日界并进来
+    off = tz_offset_min * 60_000
+    day_ms = 86_400_000
+    by_day = {r["d"]: dict(r) for r in rows}
+    for inc in db.income_rows(since, account_id=acct):
+        if inc["type"] != "FUNDING_FEE":
+            continue
+        d = ((inc["ts"] + off) // day_ms) * day_ms - off
+        b = by_day.setdefault(d, {"d": d, "realized": 0.0, "fee": 0.0,
+                                  "funding": 0.0, "trades": 0})
+        b["funding"] += inc["amount"]
+    out = sorted(by_day.values(), key=lambda x: x["d"])
+    return {
+        "rows": out,
+        "days": days,
+        "accountId": acct,
+        "winDays": sum(1 for r in out if r["realized"] > 0),
+        "lossDays": sum(1 for r in out if r["realized"] < 0),
     }
 
 

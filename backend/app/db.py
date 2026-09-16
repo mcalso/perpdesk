@@ -407,6 +407,17 @@ def income_by_type(since: int | None = None,
     return {r["type"]: r["total"] for r in connect().execute(sql, args)}
 
 
+def income_rows(since: int | None = None,
+                account_id: int | None = None) -> list[dict[str, Any]]:
+    """原始流水行，供按日分桶用。只取分桶需要的三列。"""
+    sql = "SELECT ts, type, amount FROM income WHERE account_id = ?"
+    args: list = [_acct(account_id)]
+    if since:
+        sql += " AND ts >= ?"
+        args.append(since)
+    return [dict(r) for r in connect().execute(sql, args)]
+
+
 def income_symbols(account_id: int | None = None) -> list[str]:
     """所有出现过流水的标的——用它反查有交易历史的 symbol，含已平仓的。"""
     return [

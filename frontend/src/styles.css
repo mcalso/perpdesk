@@ -581,3 +581,44 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
   color: var(--text-dim); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; flex: 1;
 }
+
+/* ---------- 图表组：一大 N 小 ---------- */
+.deck { display: grid; grid-template-columns: 1fr 210px; gap: 14px; align-items: start; }
+.deck-main { min-width: 0; }
+.deck-rail { display: flex; flex-direction: column; gap: 10px; }
+
+.deck-thumb {
+  display: block; width: 100%; text-align: left; padding: 9px 10px 4px;
+  background: linear-gradient(165deg, #1b2130 0%, var(--panel) 60%);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  cursor: pointer; overflow: hidden;
+  transition: transform .18s var(--ease), border-color .18s var(--ease),
+              box-shadow .18s var(--ease);
+}
+.deck-thumb:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 18px -6px rgba(41, 98, 255, .6);
+  background: linear-gradient(165deg, #1b2130 0%, var(--panel) 60%);
+}
+.deck-thumb-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 6px; margin-bottom: 4px;
+}
+.deck-thumb-title {
+  font-size: var(--fs-sm); font-weight: 600; color: var(--text-dim);
+  letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.deck-thumb-body { height: 62px; pointer-events: none; }
+
+.deck-badge {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.deck-badge.sm { font-size: 10px; }
+
+@media (max-width: 900px) {
+  .deck { grid-template-columns: 1fr; }
+  .deck-rail { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .deck-rail .deck-thumb { min-width: 150px; flex-shrink: 0; }
+}

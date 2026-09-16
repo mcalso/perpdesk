@@ -194,6 +194,18 @@ export const api = {
     return req<{ inserted: number; skipped: number; symbols: string[] }>(
       `/api/account/sync-trades?${acct(q)}`, { method: 'POST' })
   },
+  daily: (days?: number | null) => {
+    const q = new URLSearchParams()
+    if (days) q.set('days', String(days))
+    // getTimezoneOffset 返回的是"落后 UTC 多少分钟"，东八区是 -480，
+    // 后端要的是相对 UTC 的偏移，取反
+    q.set('tz_offset_min', String(-new Date().getTimezoneOffset()))
+    return req<{
+      rows: { d: number; realized: number; fee: number; funding: number; trades: number }[]
+      winDays: number; lossDays: number
+    }>(`/api/portfolio/daily?${acct(q)}`)
+  },
+
   curve: (days?: number | null) => {
     const q = new URLSearchParams()
     if (days) q.set('days', String(days))

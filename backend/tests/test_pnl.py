@@ -325,3 +325,65 @@ def test_downsample_reinserts_last_point_when_bucketing_drops_it():
     pts = _pts(range(49))
     out = pnl.downsample(pts, 33)
     assert out[-1]["t"] == pts[-1]["t"], "终点被抽掉且没补回来"
+
+
+# ---------------------------------------------------------------- 按日聚合
+
+def _at(iso_utc: str) -> int:
+    """UTC 时间字符串 → 毫秒戳。"""
+    from datetime import datetime, timezone
+    return int(datetime.strptime(iso_utc, "%Y-%m-%d %H:%M").replace(
+        tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def test_daily_buckets_sum_to_the_total():
+    trades = [
+        trade(side="BUY", qty=1, price=100, fee=0.1, at=_at("2026-01-01 03:00")),
+        trade(side="SELL", qty=1, price=150, fee=0.1, at=_at("2026-01-02 03:00")),
+        trade(side="BUY", qty=1, price=100, fee=0.1, at=_at("2026-01-03 03:00")),
+        trade(side="SELL", qty=1, price=90, fee=0.1, at=_at("2026-01-03 05:00")),
+    ]
+    rows = pnl.daily_buckets(trades)
+    total = sum(r["realized"] for r in rows)
+    assert total == pytest.approx(book_of(trades)["realized"]), "分桶后对不上总账"
+    assert sum(r["trades"] for r in rows) == 4
+
+
+def test_daily_buckets_split_by_local_midnight_not_utc():
+    """东八区的 UTC 日界落在早上 8 点，按 UTC 分桶会把一个交易日从中间劈开。
+
+    这两笔在北京时间都是 1 月 2 日（00:30 和 15:00），按 UTC 却分属
+    1 月 1 日和 1 月 2 日。日线柱错位一天，"昨天赚了多少"就永远是错的。
+    """
+    trades = [
+        trade(side="BUY", qty=1, price=100, at=_at("2026-01-01 16:30")),   # 北京 1/2 00:30
+        trade(side="SELL", qty=1, price=110, at=_at("2026-01-02 07:00")),  # 北京 1/2 15:00
+    ]
+    utc_days = pnl.daily_buckets(trades, tz_offset_min=0)
+    cn_days = pnl.daily_buckets(trades, tz_offset_min=480)
+
+    assert len(utc_days) == 2, "UTC 下这两笔本来就跨日"
+    assert len(cn_days) == 1, "东八区下应当合并成同一天"
+    assert cn_days[0]["realized"] == pytest.approx(10.0)
+
+
+def test_daily_bucket_boundary_is_local_midnight():
+    """桶的起点必须正好是本地零点。"""
+    trades = [trade(side="BUY", qty=1, price=100, at=_at("2026-01-01 16:00"))]  # 北京 1/2 00:00
+    (row,) = pnl.daily_buckets(trades, tz_offset_min=480)
+    assert row["d"] == _at("2026-01-01 16:00"), "桶起点不是北京时间的零点"
+
+
+def test_daily_buckets_replay_full_history_for_correct_cost():
+    """区间统计仍要全量回放：只回放区间内的成交，成本会来自不存在的开仓。"""
+    trades = [
+        trade(side="BUY", qty=1, price=100, at=_at("2026-01-01 03:00")),   # 区间之前开仓
+        trade(side="SELL", qty=1, price=150, at=_at("2026-02-01 03:00")),  # 区间之内平仓
+    ]
+    rows = pnl.daily_buckets(trades, since=_at("2026-01-15 00:00"))
+    assert len(rows) == 1
+    assert rows[0]["realized"] == pytest.approx(50.0), "成本基准丢了"
+
+
+def test_daily_buckets_empty_input():
+    assert pnl.daily_buckets([]) == []

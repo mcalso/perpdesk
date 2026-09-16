@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
+  ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useActiveAccount } from '../lib/account'
 import { AnimatedNumber } from '../components/AnimatedNumber'
+import { ChartDeck, type ChartSpec } from '../components/ChartDeck'
 import { ExchangeAccount } from '../components/ExchangeAccount'
 import { SortHeader } from '../components/SortHeader'
 import { SymbolIcon } from '../components/SymbolIcon'
@@ -12,11 +14,34 @@ import { useSort } from '../lib/useSort'
 import { api, type PortfolioSummary, type Trade } from '../lib/api'
 import { fmtDate, fmtPrice, fmtQty, fmtTime, fmtUsd, trendClass } from '../lib/format'
 
+const UP = '#26a69a'
+const DOWN = '#ef5350'
+const ACCENT = '#5b8dff'
+const WARN = '#ff9800'
+const GRID = '#242938'
+const AXIS = '#767a88'
+
+// 五张图共用一套 tooltip 样式
+const TIP = {
+  contentStyle: { background: '#1e2330', border: '1px solid #333a4d',
+                  borderRadius: 8, fontSize: 12,
+                  boxShadow: '0 8px 24px -6px rgba(0,0,0,.6)' },
+}
+
 // 历史盈亏的统计区间。null = 全部历史
 const RANGES: { v: number | null; label: string }[] = [
   { v: 7, label: '7天' }, { v: 30, label: '30天' },
   { v: 90, label: '90天' }, { v: 365, label: '1年' }, { v: null, label: '全部' },
 ]
+
+function Empty({ mode, loaded, text }: {
+  mode: 'large' | 'thumb'; loaded: boolean; text: string
+}) {
+  if (!loaded) return <div className="skeleton skeleton-chart" />
+  // 缩略图太小，放文字只会挤成一团，留空即可
+  return mode === 'thumb' ? <div /> : <div className="empty">{text}</div>
+}
+
 
 function StatCard({ label, value, format, sub, cls, hero }: {
   label: string
@@ -45,6 +70,9 @@ export default function Portfolio() {
   // 否则后端不通时会一直显示骨架屏
   const [loaded, setLoaded] = useState(false)
   const [curve, setCurve] = useState<{ t: number; realized: number }[]>([])
+  const [daily, setDaily] = useState<
+    { d: number; realized: number; fee: number; funding: number; trades: number }[]>([])
+  const [dailyStat, setDailyStat] = useState({ winDays: 0, lossDays: 0 })
   const [trades, setTrades] = useState<Trade[]>([])
   const [tradeTotal, setTradeTotal] = useState(0)
   const [tradePage, setTradePage] = useState(0)
@@ -65,11 +93,13 @@ export default function Portfolio() {
 
   const reload = useCallback(async () => {
     try {
-      const [s, c, t] = await Promise.all([
+      const [s, c, t, d] = await Promise.all([
         api.summary(days), api.curve(days),
         api.trades({ limit: TRADE_PAGE, offset: tradePage * TRADE_PAGE }),
+        api.daily(days),
       ])
       setSum(s); setCurve(c.points)
+      setDaily(d.rows); setDailyStat({ winDays: d.winDays, lossDays: d.lossDays })
       setTrades(t.rows); setTradeTotal(t.total)
       setRange({ from: c.from, to: c.to })
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
@@ -148,6 +178,174 @@ export default function Portfolio() {
   const closedSort = useSort(closed, 'realized')
   const tradeSort = useSort(trades, 'traded_at')
 
+  // 五张图共用两个接口的数据：曲线走 /curve，其余四张走 /daily。
+  // 缩略图刻意砍掉坐标轴、网格、tooltip 与入场动画 —— 一次要同时渲染四张，
+  // 留着那些既看不清也拖慢每次数据刷新。
+  const charts: ChartSpec[] = useMemo(() => {
+    const thumb = { top: 2, right: 2, bottom: 2, left: 2 }
+    const large = { top: 5, right: 10, bottom: 5, left: 0 }
+    const cumFee = (() => {
+      let f = 0, g = 0
+      return daily.map((d) => ({ d: d.d, fee: (f += d.fee), funding: (g += d.funding) }))
+    })()
+    const bySymbol = [...(sum?.positions ?? [])]
+      .filter((p) => p.realized !== 0 || p.funding !== 0)
+      .map((p) => ({ symbol: p.symbol.replace(/USDT$/, ''), realized: p.realized + p.funding }))
+      .sort((a, b) => b.realized - a.realized)
+    const ranked = bySymbol.length > 12
+      ? [...bySymbol.slice(0, 6), ...bySymbol.slice(-6)]   // 只留最赚与最亏的各 6 个
+      : bySymbol
+    const grossRealized = (s?.totalRealized ?? 0) + (s?.totalFee ?? 0)
+    const cost = [
+      { name: '毛利', v: grossRealized, fill: grossRealized >= 0 ? UP : DOWN },
+      { name: '手续费', v: -(s?.totalFee ?? 0), fill: DOWN },
+      { name: '资金费', v: s?.totalFunding ?? 0, fill: (s?.totalFunding ?? 0) >= 0 ? UP : WARN },
+      { name: '净额', v: (s?.totalRealized ?? 0) + (s?.totalFunding ?? 0),
+        fill: ACCENT },
+    ]
+    const winRate = dailyStat.winDays + dailyStat.lossDays
+      ? (dailyStat.winDays / (dailyStat.winDays + dailyStat.lossDays)) * 100 : 0
+
+    return [
+      {
+        key: 'curve',
+        title: '已实现盈亏曲线',
+        sub: `${days ? `最近 ${days} 天的区间损益` : '全部历史逐笔累计'}，含手续费；浮盈不计入（历史时点用当前价回算会失真）`,
+        badge: { text: fmtUsd(curve.length ? curve[curve.length - 1].realized : 0),
+                 cls: trendClass(curve.length ? curve[curve.length - 1].realized : 0) },
+        render: (mode) => curve.length > 1 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={curve} margin={mode === 'thumb' ? thumb : large}>
+              <defs>
+                <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.45} />
+                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              {mode === 'large' && <CartesianGrid stroke={GRID} strokeDasharray="3 3" />}
+              {mode === 'large' && <XAxis dataKey="t" tickFormatter={fmtDate} stroke={AXIS} fontSize={11} />}
+              {mode === 'large' && <YAxis stroke={AXIS} fontSize={11} width={70}
+                                          tickFormatter={(v: number) => `$${v.toFixed(0)}`} />}
+              {mode === 'large' && (
+                <Tooltip {...TIP} labelFormatter={(v) => fmtTime(Number(v))}
+                         formatter={(v: number) => [fmtUsd(v), '累计已实现']} />
+              )}
+              <Area type="monotone" dataKey="realized" stroke={ACCENT} strokeWidth={2}
+                    fill="url(#pnlFill)" dot={false} isAnimationActive={mode === 'large'}
+                    activeDot={mode === 'large' ? { r: 4, strokeWidth: 0 } : false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : <Empty mode={mode} loaded={loaded} text={sum ? '至少需要 2 笔交易才能画曲线' : '读不到盈亏数据'} />,
+      },
+      {
+        key: 'daily',
+        title: '每日盈亏',
+        sub: '按本地自然日分桶，含手续费与资金费',
+        badge: { text: `${dailyStat.winDays} 胜 / ${dailyStat.lossDays} 负`,
+                 cls: winRate >= 50 ? 'up' : 'down' },
+        render: (mode) => daily.length ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={daily} margin={mode === 'thumb' ? thumb : large}>
+              {mode === 'large' && <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />}
+              {mode === 'large' && <XAxis dataKey="d" tickFormatter={fmtDate} stroke={AXIS} fontSize={11} />}
+              {mode === 'large' && <YAxis stroke={AXIS} fontSize={11} width={70}
+                                          tickFormatter={(v: number) => `$${v.toFixed(0)}`} />}
+              {mode === 'large' && (
+                <Tooltip {...TIP} cursor={{ fill: 'rgba(255,255,255,.04)' }}
+                         labelFormatter={(v) => fmtDate(Number(v))}
+                         formatter={(v: number, _n, p) => {
+                           const r = p.payload as { fee: number; funding: number; trades: number }
+                           return [`${fmtUsd(v)} · ${r.trades} 笔 · 手续费 ${fmtUsd(r.fee)}`, '当日盈亏']
+                         }} />
+              )}
+              {mode === 'large' && <ReferenceLine y={0} stroke={AXIS} />}
+              <Bar dataKey="realized" isAnimationActive={mode === 'large'}>
+                {daily.map((d, i) => (
+                  <Cell key={i} fill={d.realized >= 0 ? UP : DOWN} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : <Empty mode={mode} loaded={loaded} text="这段时间没有成交" />,
+      },
+      {
+        key: 'symbols',
+        title: '标的盈亏排行',
+        sub: ranked.length < bySymbol.length ? '只显示最赚与最亏的各 6 个' : '已实现 + 资金费',
+        badge: { text: `${bySymbol.length} 个标的` },
+        render: (mode) => ranked.length ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={ranked} layout="vertical"
+                      margin={mode === 'thumb' ? thumb : { top: 5, right: 20, bottom: 5, left: 10 }}>
+              {mode === 'large' && <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />}
+              <XAxis type="number" hide={mode === 'thumb'} stroke={AXIS} fontSize={11}
+                     tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
+              <YAxis type="category" dataKey="symbol" hide={mode === 'thumb'}
+                     stroke={AXIS} fontSize={11} width={72} />
+              {mode === 'large' && (
+                <Tooltip {...TIP} cursor={{ fill: 'rgba(255,255,255,.04)' }}
+                         formatter={(v: number) => [fmtUsd(v), '已实现 + 资金费']} />
+              )}
+              <Bar dataKey="realized" isAnimationActive={mode === 'large'}>
+                {ranked.map((r, i) => (
+                  <Cell key={i} fill={r.realized >= 0 ? UP : DOWN} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : <Empty mode={mode} loaded={loaded} text="还没有已平仓的标的" />,
+      },
+      {
+        key: 'cost',
+        title: '成本构成',
+        sub: '毛利被手续费和资金费吃掉多少',
+        badge: { text: fmtUsd(s?.totalFee), cls: 'down' },
+        render: (mode) => (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={cost} margin={mode === 'thumb' ? thumb : large}>
+              {mode === 'large' && <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />}
+              {mode === 'large' && <XAxis dataKey="name" stroke={AXIS} fontSize={11} />}
+              {mode === 'large' && <YAxis stroke={AXIS} fontSize={11} width={70}
+                                          tickFormatter={(v: number) => `$${v.toFixed(0)}`} />}
+              {mode === 'large' && (
+                <Tooltip {...TIP} cursor={{ fill: 'rgba(255,255,255,.04)' }}
+                         formatter={(v: number) => [fmtUsd(v), '金额']} />
+              )}
+              {mode === 'large' && <ReferenceLine y={0} stroke={AXIS} />}
+              <Bar dataKey="v" isAnimationActive={mode === 'large'}>
+                {cost.map((c, i) => <Cell key={i} fill={c.fill} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ),
+      },
+      {
+        key: 'fees',
+        title: '成本累计',
+        sub: '手续费与资金费随时间的累计值',
+        badge: { text: fmtUsd(-(s?.totalFee ?? 0)), cls: 'down' },
+        render: (mode) => cumFee.length > 1 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={cumFee} margin={mode === 'thumb' ? thumb : large}>
+              {mode === 'large' && <CartesianGrid stroke={GRID} strokeDasharray="3 3" />}
+              {mode === 'large' && <XAxis dataKey="d" tickFormatter={fmtDate} stroke={AXIS} fontSize={11} />}
+              {mode === 'large' && <YAxis stroke={AXIS} fontSize={11} width={70}
+                                          tickFormatter={(v: number) => `$${v.toFixed(0)}`} />}
+              {mode === 'large' && (
+                <Tooltip {...TIP} labelFormatter={(v) => fmtDate(Number(v))}
+                         formatter={(v: number, n) => [fmtUsd(v), n === 'fee' ? '累计手续费' : '累计资金费']} />
+              )}
+              <Line type="monotone" dataKey="fee" stroke={DOWN} strokeWidth={2} dot={false}
+                    isAnimationActive={mode === 'large'} />
+              <Line type="monotone" dataKey="funding" stroke={WARN} strokeWidth={2} dot={false}
+                    isAnimationActive={mode === 'large'} />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : <Empty mode={mode} loaded={loaded} text="这段时间没有成本记录" />,
+      },
+    ]
+  }, [curve, daily, dailyStat, sum, s, days, loaded])
+
   return (
     <div className="page col">
       <ExchangeAccount onSynced={reload} />
@@ -202,48 +400,7 @@ export default function Portfolio() {
                   sub={`当前持仓 ${s?.openCount ?? 0} 个`} />
       </div>
 
-      <div className="row">
-        <div className="panel" style={{ flex: 1, minWidth: 0 }}>
-          <div className="panel-head">已实现盈亏曲线
-            <span className="muted" style={{ fontWeight: 400 }}>
-              {days ? `最近 ${days} 天的区间损益` : '全部历史逐笔累计'}，含手续费；
-              浮盈不计入（历史时点用当前价回算会失真）
-            </span>
-          </div>
-          <div className="panel-body" style={{ height: 260 }}>
-            {curve.length > 1 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={curve} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                  <defs>
-                    <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#5b8dff" stopOpacity={0.45} />
-                      <stop offset="100%" stopColor="#5b8dff" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#242938" strokeDasharray="3 3" />
-                  <XAxis dataKey="t" tickFormatter={fmtDate} stroke="#767a88" fontSize={11} />
-                  <YAxis stroke="#767a88" fontSize={11} width={70}
-                         tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
-                  <Tooltip
-                    contentStyle={{ background: '#1e2330', border: '1px solid #333a4d',
-                                    borderRadius: 8, fontSize: 12,
-                                    boxShadow: '0 8px 24px -6px rgba(0,0,0,.6)' }}
-                    labelFormatter={(v) => fmtTime(Number(v))}
-                    formatter={(v: number) => [fmtUsd(v), '累计已实现']}
-                  />
-                  <Area type="monotone" dataKey="realized" stroke="#5b8dff" strokeWidth={2}
-                        fill="url(#pnlFill)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className={loaded ? 'empty' : 'skeleton skeleton-chart'}>
-                {loaded ? (sum ? '至少需要 2 笔交易才能画曲线' : '读不到盈亏数据') : ''}
-              </div>
-            )}
-          </div>
-        </div>
-
-      </div>
+      <ChartDeck charts={charts} height={300} />
 
       {closed.length > 0 && (
         <div className="panel">

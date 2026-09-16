@@ -209,3 +209,31 @@ def equity_curve(trades: list[dict], since: int | None = None) -> list[dict]:
         total += gain
         curve.append({"t": t["traded_at"], "realized": total - base})
     return curve
+
+
+def daily_buckets(trades: list[dict], since: int | None = None,
+                  tz_offset_min: int = 0) -> list[dict]:
+    """按自然日聚合已实现盈亏、手续费与成交笔数。
+
+    tz_offset_min 是本地时区相对 UTC 的分钟偏移（东八区 = 480）。
+    "今天赚了多少"里的"今天"是用户屏幕上的那一天：东八区的 UTC 日界落在
+    早上 8 点，按 UTC 分桶会把一个交易日从中间劈开，日线柱全是错位的。
+
+    与 build_summary 一样先全量回放再按区间累加 —— 只回放区间内的成交，
+    持仓成本会来自不存在的开仓，盈亏全错。
+    """
+    books: dict[str, dict] = {}
+    out: dict[int, dict] = {}
+    off = tz_offset_min * 60_000
+    day_ms = 86_400_000
+    for t in sorted(trades, key=lambda x: (x["traded_at"], x["id"])):
+        gain = apply_trade(books, t)
+        if since is not None and t["traded_at"] < since:
+            continue
+        day = ((t["traded_at"] + off) // day_ms) * day_ms - off
+        b = out.setdefault(day, {"d": day, "realized": 0.0, "fee": 0.0,
+                                 "funding": 0.0, "trades": 0})
+        b["realized"] += gain          # gain 已扣手续费，与 build_summary 同口径
+        b["fee"] += t["fee"]
+        b["trades"] += 1
+    return sorted(out.values(), key=lambda x: x["d"])
