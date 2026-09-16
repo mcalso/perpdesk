@@ -71,6 +71,17 @@ WS_MAX_STREAMS = 100
 # 前端广播间隔（秒）
 BROADCAST_INTERVAL = 1.0
 
+# ---------------- 资讯 ----------------
+# 源都是从各家网页前端扒的非公开接口，随时可能失效；置空即可完全关闭。
+# ⚠️ 内容版权归各源站所有。自建实例自己看没问题，不要缓存后对外分发。
+NEWS_SOURCES: tuple[str, ...] = tuple(
+    x for x in os.getenv("PERPDESK_NEWS_SOURCES", "jin10").split(",") if x.strip())
+# 金十 50 条覆盖约 24 分钟，60 秒一轮绰绰有余，还能少一半流量
+NEWS_POLL_INTERVAL = float(os.getenv("PERPDESK_NEWS_INTERVAL", "60"))
+NEWS_KEEP_DAYS = int(os.getenv("PERPDESK_NEWS_KEEP_DAYS", "30"))
+# 金十每条中英文各发一遍，默认只留中文，否则列表里每条都重复。cn / en / all
+NEWS_LANG = os.getenv("PERPDESK_NEWS_LANG", "cn")
+
 DEFAULT_WATCHLIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]
 
 

@@ -15,6 +15,7 @@ import './styles.css'
  */
 const Chart = lazy(() => import('./pages/Chart'))
 const Portfolio = lazy(() => import('./pages/Portfolio'))
+const News = lazy(() => import('./pages/News'))
 
 const chunkFallback = (
   <div className="page col">
@@ -38,6 +39,7 @@ const router = createHashRouter([
       { path: 'chart', element: lazyPage(<Chart />) },
       { path: 'chart/:symbol', element: lazyPage(<Chart />) },
       { path: 'portfolio', element: lazyPage(<Portfolio />) },
+      { path: 'news', element: lazyPage(<News />) },
       // 手敲错路径时回行情看板，而不是给一屏空白
       { path: '*', element: <Navigate to="/market" replace /> },
     ],

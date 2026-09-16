@@ -622,3 +622,42 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
   .deck-rail { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
   .deck-rail .deck-thumb { min-width: 150px; flex-shrink: 0; }
 }
+
+/* ---------- 资讯快讯 ---------- */
+.flash-list { max-height: 72vh; overflow: auto; }
+.flash {
+  display: flex; gap: 12px; padding: 11px 14px;
+  border-bottom: 1px solid rgba(36, 41, 56, .6);
+  transition: background .15s var(--ease);
+}
+.flash:hover { background: var(--panel-2); }
+/* 重要条目：左侧一道暖色，不整行染色——整行高亮在长列表里很吵 */
+.flash.hot { box-shadow: inset 3px 0 0 var(--warn); background: rgba(255, 152, 0, .04); }
+
+.flash-time {
+  flex-shrink: 0; width: 46px; padding-top: 1px;
+  font-size: var(--fs-sm); color: var(--text-faint);
+}
+.flash.hot .flash-time { color: var(--warn); }
+.flash-body { min-width: 0; flex: 1; }
+.flash-title { font-weight: 600; margin-bottom: 3px; line-height: 1.45; }
+.flash-text { color: var(--text-dim); line-height: 1.65; word-break: break-word; }
+.flash-title + .flash-text { font-size: 12px; }
+
+.flash-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; }
+.flash-sym {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px 2px 5px; font-size: 11px; font-weight: 600;
+  background: rgba(41, 98, 255, .12); border: 1px solid rgba(41, 98, 255, .3);
+  border-radius: 4px; color: var(--accent-lit); cursor: pointer;
+}
+.flash-sym:hover:not(:disabled) {
+  background: rgba(41, 98, 255, .22); border-color: var(--accent);
+}
+.flash-link { font-size: 11px; margin-left: auto; }
+.flash-link:hover { color: var(--accent-lit); }
+
+@media (max-width: 760px) {
+  .flash { flex-direction: column; gap: 4px; }
+  .flash-time { width: auto; }
+}

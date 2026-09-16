@@ -93,6 +93,63 @@ def _acct(account_id: int | None) -> int:
     return default_account_id() if account_id is None else account_id
 
 
+# ---------- 资讯快讯 ----------
+
+def upsert_flashes(rows: list[tuple]) -> int:
+    """rows: (source, source_id, ts, title, content, link, important, tags, symbols)
+
+    按 (source, source_id) 幂等 —— 轮询窗口有重叠，同一条会反复取到。
+    """
+    conn = connect()
+    now = int(time.time() * 1000)
+    cur = conn.executemany(
+        """INSERT OR IGNORE INTO flashes
+           (source, source_id, ts, title, content, link, important, tags, symbols, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [(*r, now) for r in rows],
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def page_flashes(limit: int = 50, before: int | None = None,
+                 important_only: bool = False,
+                 symbols: list[str] | None = None) -> list[dict[str, Any]]:
+    """按时间倒序翻页。before 传上一页最后一条的 ts 做游标。
+
+    不用 OFFSET：资讯是持续追加的，翻页期间前面插进新条目会让 OFFSET 错位、
+    重复显示同一条。时间游标没这个问题。
+    """
+    sql = "SELECT * FROM flashes WHERE 1=1"
+    args: list = []
+    if before:
+        sql += " AND ts < ?"
+        args.append(before)
+    if important_only:
+        sql += " AND important = 1"
+    if symbols:
+        # symbols 列是 JSON 数组，命中任一即可
+        sql += " AND (" + " OR ".join(["symbols LIKE ?"] * len(symbols)) + ")"
+        args += [f'%"{s}"%' for s in symbols]
+    sql += " ORDER BY ts DESC, id DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in connect().execute(sql, args)]
+
+
+def flash_stats() -> dict[str, Any]:
+    r = connect().execute(
+        "SELECT COUNT(*) AS n, COALESCE(MAX(ts), 0) AS latest FROM flashes").fetchone()
+    return {"total": int(r["n"]), "latest": int(r["latest"])}
+
+
+def purge_flashes(before_ts: int) -> int:
+    """删掉过老的快讯。资讯的价值随时间衰减得很快，留着只是占地方。"""
+    conn = connect()
+    cur = conn.execute("DELETE FROM flashes WHERE ts < ?", (before_ts,))
+    conn.commit()
+    return cur.rowcount
+
+
 # ---------- auth / sessions ----------
 
 def get_auth() -> dict[str, Any] | None:

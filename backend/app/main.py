@@ -17,7 +17,8 @@ from . import account as account_api
 from . import auth as auth_mod
 from . import binance, config, db, icons, vault
 from .hub import hub
-from .routers import account, auth, market, portfolio, watchlist
+from .news.poller import poller as news_poller
+from .routers import account, auth, market, news, portfolio, watchlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +54,11 @@ async def lifespan(app: FastAPI):
     account_api.registry.on_positions = _refresh_ws_symbols
     _refresh_ws_symbols([])
     await account_api.registry.sync()
+    # 资讯关联标的要靠 exchangeInfo 的 base→symbol 映射。传函数而不是快照：
+    # 启动这一刻 exchangeInfo 可能还没拉到（418 退避），映射会是空的。
+    news_poller.symbol_provider = lambda: {
+        m["base"]: sym for sym, m in hub.meta.items() if m.get("base")}
+    await news_poller.start()
     # 按成交额从高到低预热，热门标的先有图
     prewarm_task = asyncio.create_task(
         icons.prewarm(lambda: [r["symbol"] for r in
@@ -62,6 +68,7 @@ async def lifespan(app: FastAPI):
     log.info("perpdesk backend ready: %s", hub.status())
     yield
     prewarm_task.cancel()
+    await news_poller.stop()
     await account_api.registry.stop_all()
     await hub.stop()
     await binance.close()
@@ -99,6 +106,7 @@ async def require_login(request: Request, call_next):
 
 app.include_router(auth.router)
 app.include_router(market.router)
+app.include_router(news.router)
 app.include_router(account.router)
 app.include_router(watchlist.router)
 app.include_router(portfolio.router)

@@ -74,6 +74,8 @@ export default function App() {
                    className={({ isActive }) => (isActive ? 'active' : '')}>图表分析</NavLink>
           <NavLink to="/portfolio" viewTransition
                    className={({ isActive }) => (isActive ? 'active' : '')}>持仓盈亏</NavLink>
+          <NavLink to="/news" viewTransition
+                   className={({ isActive }) => (isActive ? 'active' : '')}>资讯</NavLink>
         </nav>
         <AccountSwitcher />
         <StatusChip />

@@ -65,6 +65,28 @@ export interface AccountOverview {
   pollInterval: number
 }
 
+export interface Flash {
+  id: number
+  source: string
+  ts: number
+  title: string
+  content: string
+  link: string
+  important: boolean
+  tags: string[]
+  symbols: string[]
+}
+
+export interface NewsStatus {
+  sources: string[]
+  pollInterval: number
+  total: number
+  latest: number
+  ageSec: number | null
+  error: string
+  symbolsKnown: number
+}
+
 export interface PortfolioSummary {
   positions: Position[]
   summary: {
@@ -158,6 +180,18 @@ export const api = {
     req<{ ok: boolean; symbols: string[] }>(`/api/watchlist/${symbol}`, { method: 'DELETE' }),
 
   accounts: () => req<{ rows: AccountRow[]; defaultId: number }>('/api/account/accounts'),
+
+  news: (opts: { limit?: number; before?: number; important?: boolean; mine?: boolean } = {}) => {
+    const q = new URLSearchParams()
+    q.set('limit', String(opts.limit ?? 50))
+    if (opts.before) q.set('before', String(opts.before))
+    if (opts.important) q.set('important', 'true')
+    if (opts.mine) q.set('mine', 'true')
+    return req<{ rows: Flash[]; filteredBy: string[]; status: NewsStatus }>(
+      `/api/news?${acct(q)}`)
+  },
+  refreshNews: () =>
+    req<{ inserted: number; status: NewsStatus }>('/api/news/refresh', { method: 'POST' }),
 
   trades: (opts: { symbol?: string; limit?: number; offset?: number } = {}) => {
     const q = new URLSearchParams()

@@ -246,12 +246,43 @@ def _m005_auth(conn: sqlite3.Connection) -> None:
     _exec_all(conn, _M005_AUTH)
 
 
+_M006_FLASHES = (
+    # 资讯是全局的，不挂账户 —— 同一条快讯对所有账户是同一条。
+    """CREATE TABLE IF NOT EXISTS flashes (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        source     TEXT NOT NULL,              -- 'jin10'
+        source_id  TEXT NOT NULL,              -- 源站的 id，去重靠它
+        ts         INTEGER NOT NULL,           -- 发布时间，毫秒
+        title      TEXT NOT NULL DEFAULT '',
+        content    TEXT NOT NULL,
+        link       TEXT NOT NULL DEFAULT '',
+        important  INTEGER NOT NULL DEFAULT 0, -- 源站自己标的重要性
+        tags       TEXT NOT NULL DEFAULT '[]', -- JSON
+        symbols    TEXT NOT NULL DEFAULT '[]', -- 命中的合约标的，JSON
+        created_at INTEGER NOT NULL,
+        UNIQUE (source, source_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_flashes_ts ON flashes (ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_flashes_important ON flashes (important, ts DESC)",
+)
+
+
+def _m006_flashes(conn: sqlite3.Connection) -> None:
+    """资讯快讯。
+
+    去重键是 (source, source_id) 而不是 source_id：不同源的 id 各自编号，
+    早晚会撞。
+    """
+    _exec_all(conn, _M006_FLASHES)
+
+
 MIGRATIONS: list[tuple[int, str, Apply]] = [
     (1, "baseline", _m001_baseline),
     (2, "trades.realized_pnl", _m002_trades_realized_pnl),
     (3, "accounts", _m003_accounts),
     (4, "credentials", _m004_credentials),
     (5, "auth", _m005_auth),
+    (6, "flashes", _m006_flashes),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

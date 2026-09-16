@@ -181,6 +181,36 @@ testCase('图表组', async () => {
   check('轨道保持原序', thumbs()[0] === before, JSON.stringify(thumbs()))
 })
 
+testCase('资讯页', async () => {
+  const T = Date.now()
+  const rows = [
+    { id: 3, source: 'jin10', ts: T - 60000, title: '美联储维持利率不变',
+      content: '美联储宣布维持基准利率在 4.25%-4.50% 区间不变。', link: 'https://x',
+      important: true, tags: ['macro'], symbols: [] },
+    { id: 2, source: 'jin10', ts: T - 120000, title: '',
+      content: '德国加大天然气储备填充力度。', link: '',
+      important: false, tags: ['commodity'], symbols: ['NATGASUSDT'] },
+    { id: 1, source: 'jin10', ts: T - 900000, title: '英伟达发布新一代芯片',
+      content: '英伟达在发布会上公布了下一代 AI 加速卡。', link: '',
+      important: false, tags: ['equity'], symbols: ['NVDAUSDT'] },
+  ]
+  const { doc, html } = await mount({
+    tag: 'news', hash: '#/news',
+    routes: {
+      '/auth/me': AUTHED,
+      '/api/news': { rows, filteredBy: [],
+                     status: { sources: ['jin10'], pollInterval: 60, total: 3,
+                               latest: T, ageSec: 5, error: '', symbolsKnown: 718 } },
+    },
+  })
+  check('渲染出快讯条目', doc.querySelectorAll('.flash').length === 3,
+        `${doc.querySelectorAll('.flash').length} 条`)
+  check('重要条目有标记', doc.querySelectorAll('.flash.hot').length === 1)
+  check('关联标的可点', doc.querySelectorAll('.flash-sym').length === 2)
+  check('原始 HTML 不被注入', !html.includes('<b>') && !html.includes('<script'))
+  check('板块标签已中文化', html.includes('宏观') && html.includes('商品'))
+})
+
 // ---------------------------------------------------------------- 执行
 
 const only = process.argv.find((a) => a.startsWith('--case='))?.slice(7)
