@@ -1,10 +1,12 @@
 """账户只读接口 + 把交易所成交同步进本地流水。"""
 import asyncio
+import sqlite3
 import time
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, field_validator
 
-from .. import account, db, vault
+from .. import account, config, db, vault
 from ..hub import hub
 
 router = APIRouter(prefix="/api/account", tags=["account"])
@@ -20,6 +22,56 @@ def _resolve(account_id: int | None) -> int:
     if db.get_account(account_id) is None:
         raise HTTPException(404, f"账户 {account_id} 不存在")
     return account_id
+
+
+class AccountIn(BaseModel):
+    label: str
+    exchange: str = "binance"
+    market: str = "usdm"
+    sort_order: int = 0
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, v: str) -> str:
+        v = v.strip()
+        if not 1 <= len(v) <= 40:
+            raise ValueError("名称需要 1-40 个字符")
+        return v
+
+
+class AccountPatch(BaseModel):
+    label: str | None = None
+    enabled: bool | None = None
+    sort_order: int | None = None
+
+
+class CredentialsIn(BaseModel):
+    api_key: str
+    api_secret: str
+    passphrase: str | None = None      # OKX 之类需要，币安不用
+
+
+def _require_secure(request: Request) -> None:
+    """凭据写入必须走 HTTPS。
+
+    明文 HTTP 下提交 API key，密钥就是明文过网线的 —— 这跟把它贴在公告板上
+    没多大区别。所以这里直接拒绝，而不是提示一下就放行。
+
+    本机访问放行：命令行/本地调试时没有中间链路可窃听，且首次配置往往
+    正是在还没有证书的时候做的。
+    """
+    if config.ALLOW_INSECURE_CREDENTIALS:
+        return
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = (request.client.host if request.client else "") or ""
+    if proto == "https" or host in ("127.0.0.1", "::1", "localhost"):
+        return
+    raise HTTPException(
+        421,
+        "拒绝在明文 HTTP 上接收 API 凭据：密钥会明文经过网络。"
+        "请先配置 HTTPS（见 docs/SECURITY.md），"
+        "或临时用命令行写入 backend/.env。",
+    )
 
 
 def _guard(account_id: int) -> None:
@@ -40,6 +92,87 @@ async def accounts() -> dict:
             "trades": db.trades_version(a["id"])[0],
         })
     return {"rows": rows, "defaultId": db.default_account_id()}
+
+
+@router.post("/accounts", status_code=201)
+async def create_account(body: AccountIn) -> dict:
+    acct = db.add_account(body.exchange, body.label, body.market, body.sort_order)
+    await account.registry.sync()        # 让新账户立刻开始轮询
+    return {"id": acct, "label": body.label}
+
+
+@router.patch("/accounts/{acct}")
+async def patch_account(acct: int, body: AccountPatch) -> dict:
+    if db.get_account(acct) is None:
+        raise HTTPException(404, f"账户 {acct} 不存在")
+    changed = db.update_account(
+        acct, label=body.label, sort_order=body.sort_order,
+        enabled=None if body.enabled is None else int(body.enabled))
+    await account.registry.sync()        # 停用的要停掉轮询，启用的要拉起来
+    return {"ok": changed, "account": db.get_account(acct)}
+
+
+@router.get("/accounts/{acct}/usage")
+async def account_usage(acct: int) -> dict:
+    if db.get_account(acct) is None:
+        raise HTTPException(404, f"账户 {acct} 不存在")
+    return db.account_usage(acct)
+
+
+@router.delete("/accounts/{acct}")
+async def remove_account(acct: int) -> dict:
+    """删账户。账户下还有成交时会被外键挡住 —— 那是有意的。"""
+    if db.get_account(acct) is None:
+        raise HTTPException(404, f"账户 {acct} 不存在")
+    if len(db.list_accounts()) <= 1:
+        raise HTTPException(409, "这是最后一个账户，删掉之后成交流水就没有归属了")
+    usage = db.account_usage(acct)
+    if usage["trades"] or usage["income"]:
+        raise HTTPException(
+            409,
+            f"该账户下还有 {usage['trades']} 条成交、{usage['income']} 条流水。"
+            "删掉账户会让这些记录失去归属，请先停用（enabled=false）而不是删除。")
+    try:
+        db.delete_account(acct)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(409, f"账户仍被引用，无法删除：{exc}") from exc
+    await account.registry.sync()
+    return {"ok": True}
+
+
+@router.put("/accounts/{acct}/credentials")
+async def set_credentials(acct: int, body: CredentialsIn, request: Request) -> dict:
+    """写入凭据并立刻校验。
+
+    写完马上打一次只读接口验证：填错了当场知道，而不是等到持仓页一直空着
+    才去翻日志。
+    """
+    _require_secure(request)
+    if db.get_account(acct) is None:
+        raise HTTPException(404, f"账户 {acct} 不存在")
+    vault.put(acct, "api_key", body.api_key.strip())
+    vault.put(acct, "api_secret", body.api_secret.strip())
+    if body.passphrase:
+        vault.put(acct, "passphrase", body.passphrase.strip())
+
+    try:
+        balances = await account.balances(acct)
+    except Exception as exc:
+        # 不回滚：用户可能只是暂时网络不通，凭据本身是对的。
+        # 但要如实告诉他校验没过。
+        return {"ok": True, "verified": False,
+                "error": f"凭据已保存，但校验请求失败：{str(exc)[:160]}"}
+    await account.registry.sync()
+    return {"ok": True, "verified": True,
+            "assets": len(balances),
+            "credentials": vault.status(acct)}
+
+
+@router.delete("/accounts/{acct}/credentials/{name}")
+async def drop_credential(acct: int, name: str) -> dict:
+    if name not in ("api_key", "api_secret", "passphrase"):
+        raise HTTPException(400, "未知的凭据字段")
+    return {"ok": vault.delete(acct, name)}
 
 
 @router.get("/status")

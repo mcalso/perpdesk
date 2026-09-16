@@ -181,6 +181,23 @@ export const api = {
 
   accounts: () => req<{ rows: AccountRow[]; defaultId: number }>('/api/account/accounts'),
 
+  createAccount: (body: { label: string; exchange?: string; market?: string }) =>
+    req<{ id: number; label: string }>('/api/account/accounts', {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+  patchAccount: (id: number, body: { label?: string; enabled?: boolean; sort_order?: number }) =>
+    req<{ ok: boolean }>(`/api/account/accounts/${id}`, {
+      method: 'PATCH', body: JSON.stringify(body),
+    }),
+  deleteAccount: (id: number) =>
+    req<{ ok: boolean }>(`/api/account/accounts/${id}`, { method: 'DELETE' }),
+  accountUsage: (id: number) =>
+    req<{ trades: number; income: number; credentials: number }>(
+      `/api/account/accounts/${id}/usage`),
+  setCredentials: (id: number, body: { api_key: string; api_secret: string; passphrase?: string }) =>
+    req<{ ok: boolean; verified: boolean; error?: string; assets?: number }>(
+      `/api/account/accounts/${id}/credentials`, { method: 'PUT', body: JSON.stringify(body) }),
+
   news: (opts: { limit?: number; before?: number; important?: boolean; mine?: boolean } = {}) => {
     const q = new URLSearchParams()
     q.set('limit', String(opts.limit ?? 50))

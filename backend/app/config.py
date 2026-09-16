@@ -16,6 +16,9 @@ MASTER_KEY_ENV = os.getenv("PERPDESK_MASTER_KEY", "")
 
 # 站点登录口令。留空则首次启动自动生成一个并打进日志。
 AUTH_PASSWORD = os.getenv("PERPDESK_PASSWORD", "")
+# 明文 HTTP 下默认拒绝通过网页写入 API 凭据（本机访问除外）。
+# 只有在你自己在前面挡了一层 TLS、后端拿不到 X-Forwarded-Proto 时才需要打开。
+ALLOW_INSECURE_CREDENTIALS = os.getenv("PERPDESK_ALLOW_INSECURE_CREDS", "") in ("1", "true", "yes")
 # Cookie 的 Secure 标志。HTTP 下不能置位，否则浏览器根本不会回传 cookie；
 # 上了 HTTPS 一定要打开，nginx 会通过 X-Forwarded-Proto 告知，见 routers/auth.py。
 COOKIE_SECURE = os.getenv("PERPDESK_COOKIE_SECURE", "auto")

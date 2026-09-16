@@ -211,6 +211,42 @@ testCase('资讯页', async () => {
   check('板块标签已中文化', html.includes('宏观') && html.includes('商品'))
 })
 
+testCase('设置页', async () => {
+  const accounts = [
+    { id: 1, exchange: 'binance', market: 'usdm', label: '主账户', enabled: 1, sort_order: 0,
+      created_at: 0, configured: true, credentials: { api_key: 'abcd••••••••wxyz' }, trades: 120 },
+    { id: 2, exchange: 'okx', market: 'usdm', label: '二号', enabled: 0, sort_order: 1,
+      created_at: 0, configured: false, credentials: {}, trades: 0 },
+  ]
+  const { doc, dom, html } = await mount({
+    tag: 'settings', hash: '#/settings',
+    routes: {
+      '/auth/me': AUTHED,
+      '/account/accounts': { rows: accounts, defaultId: 1 },
+      '/auth/sessions': { rows: [{ created_at: 0, expires_at: 0, last_seen: 1789000000,
+                                   label: 'Mozilla/5.0 测试' }], now: 1789000001 },
+    },
+  })
+  check('列出所有账户', doc.querySelectorAll('.acct-card').length === 2,
+        `${doc.querySelectorAll('.acct-card').length} 个`)
+  check('凭据只显示掩码', html.includes('abcd') && !html.includes('api_secret:'))
+  check('区分已配/未配凭据', html.includes('已配凭据') && html.includes('未配凭据'))
+  check('登录设备已列出', html.includes('Mozilla/5.0 测试'))
+
+  // jsdom 跑在 http://localhost 上，本机访问按设计是允许录入凭据的
+  // （没有中间链路可窃听，且首次配置往往就发生在还没证书的时候）
+  const btn = [...doc.querySelectorAll('button')].find((b) => b.textContent.includes('录入 API 凭据'))
+  check('未配凭据的账户有录入入口', !!btn)
+  btn?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 200))
+  const inputs = [...doc.querySelectorAll('input')].map((i) => i.placeholder)
+  check('本机访问放行凭据表单', inputs.includes('API Key') && inputs.includes('API Secret'),
+        JSON.stringify(inputs.filter(Boolean)))
+  check('secret 输入框是密码类型',
+        [...doc.querySelectorAll('input')].some((i) => i.placeholder === 'API Secret'
+                                                    && i.type === 'password'))
+})
+
 // ---------------------------------------------------------------- 执行
 
 const only = process.argv.find((a) => a.startsWith('--case='))?.slice(7)

@@ -76,6 +76,51 @@ def add_account(exchange: str, label: str, market: str = "usdm",
     return int(cur.lastrowid)
 
 
+def update_account(account_id: int, **fields: Any) -> bool:
+    """改账户属性。只允许改白名单里的列，别的一律忽略。"""
+    allowed = {"label", "exchange", "market", "enabled", "sort_order"}
+    sets = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not sets:
+        return False
+    global _default_account
+    conn = connect()
+    cur = conn.execute(
+        f"UPDATE accounts SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?",
+        (*sets.values(), account_id),
+    )
+    conn.commit()
+    _default_account = None      # 改了启用状态或排序，默认账户可能就变了
+    return cur.rowcount > 0
+
+
+def delete_account(account_id: int) -> bool:
+    """删账户。
+
+    trades / income 上的外键是默认的 RESTRICT，所以账户下还有成交时这里会
+    抛 IntegrityError —— 这是有意的，不能让历史成交变成查不到出处的孤儿。
+    凭据那张表是 ON DELETE CASCADE，会跟着删掉（留着是纯风险）。
+    """
+    global _default_account
+    conn = connect()
+    cur = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+    conn.commit()
+    _default_account = None
+    return cur.rowcount > 0
+
+
+def account_usage(account_id: int) -> dict[str, int]:
+    """账户下挂了多少数据。删之前要让用户看清楚。"""
+    c = connect()
+    return {
+        "trades": c.execute("SELECT COUNT(*) FROM trades WHERE account_id = ?",
+                            (account_id,)).fetchone()[0],
+        "income": c.execute("SELECT COUNT(*) FROM income WHERE account_id = ?",
+                            (account_id,)).fetchone()[0],
+        "credentials": c.execute("SELECT COUNT(*) FROM credentials WHERE account_id = ?",
+                                 (account_id,)).fetchone()[0],
+    }
+
+
 def default_account_id() -> int:
     """默认账户。缓存起来 —— 每次写入都查一次没必要。"""
     global _default_account
