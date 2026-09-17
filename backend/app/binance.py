@@ -103,6 +103,7 @@ async def exchange_info(force: bool = False, retries: int = 3) -> dict[str, dict
                 "contractType": s.get("contractType", ""),
                 "underlyingType": underlying,
                 "assetClass": _asset_class(underlying),
+                "sector": _sector(s.get("underlyingSubType")),
             }
     _exchange_info_cache.clear()
     _exchange_info_cache.update(fresh)
@@ -128,6 +129,28 @@ async def tickers_24h(retries: int = 3) -> dict[str, dict]:
     """全市场 24h 行情。本机唯一可用的全市场数据源（权重约 80）。"""
     rows = await _get("/fapi/v1/ticker/24hr", retries=retries)
     return {r["symbol"]: _norm_ticker(r) for r in rows}
+
+
+# underlyingSubType 末尾那个是大类桶（Crypto / TradFi），不是板块。
+# 真正的板块标签排在它前面，例如 ['DeFi', 'Crypto']、['Alpha', 'DeFi', 'Crypto']。
+_SECTOR_BUCKETS = frozenset({"Crypto", "TradFi"})
+
+
+def _sector(sub_types: list[str] | None) -> str:
+    """从 underlyingSubType 取主板块，没有细分的归 other。
+
+    只取**第一个**非桶标签，一个标的只归一类。少数标的带多个板块
+    （实测 2 个，如 ['Alpha','DeFi','Crypto']），若按多归属处理，
+    标签页的计数加起来会大于总数，「全部 526」和分项之和对不上，
+    筛选行为也变得有歧义 —— 对一张用来扫盘的表，这个代价不值得。
+
+    币安把 Alpha 排在具体板块之前，这个顺序正好符合需要：Alpha 是上币
+    层级（早期项目，风险等级不同），比「它属于哪个赛道」更该先看见。
+    """
+    for t in sub_types or []:
+        if t not in _SECTOR_BUCKETS:
+            return t
+    return "other"
 
 
 def _asset_class(underlying_type: str) -> str:

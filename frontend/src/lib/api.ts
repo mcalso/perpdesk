@@ -6,7 +6,7 @@ export type { AccountRow }
 export type AssetClass = 'crypto' | 'us_equity' | 'hk_equity' | 'index' | string
 
 export interface Ticker {
-  symbol: string; base: string; assetClass: AssetClass
+  symbol: string; base: string; assetClass: AssetClass; sector: string
   last: number; open: number; high: number; low: number
   chgPct: number; quoteVolume: number; volume: number; trades: number
   fundingRate: number; markPrice: number; nextFundingTime: number
