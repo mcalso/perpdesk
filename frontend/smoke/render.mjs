@@ -67,7 +67,19 @@ async function mount({ hash = '#/market', routes = {}, tag, until, timeout = 600
     unobserve() {} disconnect() {}
   }
   dom.window.ResizeObserver = globalThis.ResizeObserver
-  globalThis.WebSocket = class { constructor() {} close() {} addEventListener() {} }
+  // 必须带上 readyState 与 OPEN/CLOSED 这些静态常量。少了它们，业务代码里
+  // `ws.readyState === WebSocket.OPEN` 会退化成 undefined === undefined 恒真，
+  // 于是跑进只有真浏览器才有的分支 —— 这个假实现曾因此漏掉一次真实崩溃。
+  globalThis.WebSocket = class {
+    static CONNECTING = 0
+    static OPEN = 1
+    static CLOSING = 2
+    static CLOSED = 3
+    constructor() { this.readyState = 0 }   // 没人触发 onopen，就停在 CONNECTING
+    send() {}
+    close() { this.readyState = 3 }
+    addEventListener() {}
+  }
   dom.window.WebSocket = globalThis.WebSocket
 
   const calls = []

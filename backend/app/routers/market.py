@@ -11,6 +11,11 @@ from ..hub import hub
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
+# 紧凑帧的字段顺序，与 hub.compact_rows() 一一对应。前端 lib/ws.ts 的
+# decode() 按这个顺序解包，三处必须同时改。
+FRAME_FIELDS = ["symbol", "last", "chgPct", "quoteVolume", "high", "low",
+                "fundingRate", "markPrice"]
+
 SORT_KEYS = {
     "chgPct": lambda r: r["chgPct"],
     "quoteVolume": lambda r: r["quoteVolume"],
@@ -113,7 +118,20 @@ async def klines(
 
 @router.websocket("/ws")
 async def ws_tickers(ws: WebSocket) -> None:
-    """紧凑数组帧，1s 一推。字段顺序见 hub.compact_rows()。
+    """按需增量推送。字段顺序见 FRAME_FIELDS。
+
+    协议：连上先收一条 schema，然后客户端**必须**发 viewport 声明自己需要
+    哪些标的，服务端才会开始推 —— 在那之前一行都不推。首屏数据由
+    REST /api/market/tickers 提供，所以这个等待期对用户是无感的。
+
+        客户端 → {"type": "viewport", "symbols": ["BTCUSDT", ...]}
+        服务端 → {"type": "tickers", "rows": [[...], ...]}      只含变化的行
+
+    rows 是增量：值没变的标的不会出现在帧里，客户端把它并进自己的 Map 即可。
+
+    帧里不带 status：前端没有任何地方消费它，而它每秒都在变，反倒会
+    抵消跨帧压缩字典的效果 —— 增量帧本身往往只有几百字节，塞一份
+    status 进去就翻倍了。站点状态由 App.tsx 每 10s 轮询 /api/health。
 
     鉴权必须在这里单独做：HTTP 中间件管不到 WebSocket 握手，
     只靠中间件的话这条流就是整站唯一一个不需要登录的数据出口。
@@ -122,20 +140,36 @@ async def ws_tickers(ws: WebSocket) -> None:
         await ws.close(code=1008, reason="未登录")   # 1008 = policy violation
         return
     await ws.accept()
-    q = hub.subscribe()
-    try:
-        await ws.send_text(json.dumps({
-            "type": "schema",
-            "fields": ["symbol", "last", "chgPct", "quoteVolume", "high", "low",
-                       "fundingRate", "markPrice"],
-        }))
-        await ws.send_text(json.dumps({"type": "tickers", "rows": hub.compact_rows()}))
+    sub = hub.subscribe()
+
+    async def pump() -> None:
         while True:
-            payload = await q.get()
-            await ws.send_text(payload)
+            await ws.send_text(await sub.queue.get())
+
+    async def listen() -> None:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue                  # 坏帧不该掀翻整条连接
+            if isinstance(msg, dict) and msg.get("type") == "viewport":
+                syms = msg.get("symbols")
+                hub.set_viewport(sub, syms if isinstance(syms, list) else [])
+
+    tasks: list[asyncio.Task] = []
+    try:
+        await ws.send_text(json.dumps({"type": "schema", "fields": FRAME_FIELDS}))
+        tasks = [asyncio.create_task(pump()), asyncio.create_task(listen())]
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     except Exception:
         pass
     finally:
-        hub.unsubscribe(q)
+        for t in tasks:
+            t.cancel()
+        # 必须把子任务收干净：不 gather 的话，pump/listen 里断连抛出的异常
+        # 无人取走，asyncio 会在 GC 时打一条 "exception was never retrieved"。
+        await asyncio.gather(*tasks, return_exceptions=True)
+        hub.unsubscribe(sub)
