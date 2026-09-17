@@ -214,16 +214,28 @@ testCase('图表组', async () => {
 })
 
 testCase('行情看板', async () => {
-  const T = (symbol, base, assetClass, sector, chgPct, quoteVolume, live) => ({
-    symbol, base, assetClass, sector, last: 100, open: 0, high: 0, low: 0,
+  const NOW = Date.now()
+  const DAY = 86400000
+  const T = (symbol, base, assetClass, sector, chgPct, quoteVolume, live, extra = {}) => ({
+    symbol, base, assetClass, sector, last: 100, open: 0, high: 110, low: 90,
     chgPct, quoteVolume, volume: 0, trades: 0, fundingRate: 0.0001,
     markPrice: 100, bid: null, ask: null, live, ts: 0,
+    onboardDate: NOW - 800 * DAY,          // 默认是老标的
+    // 多给 30 秒余量：倒计时是向下取整，跑测试的这一两秒会让
+    // 2h13m00s 掉成 2h12m，断言就成了偶发红灯
+    nextFundingTime: NOW + (2 * 60 + 13) * 60000 + 30000,
+    ...extra,
   })
   const tickers = [
     T('BTCUSDT', 'BTC', 'crypto', 'PoW', 3.2, 9.8e9, true),
     T('ETHUSDT', 'ETH', 'crypto', 'Layer-1', -1.4, 3.1e9, true),
-    T('SOLUSDT', 'SOL', 'crypto', 'Layer-1', 2.0, 1.5e9, true),
-    T('NVDAUSDT', 'NVDA', 'us_equity', 'other', 0.6, 2.2e7, false),
+    // 3 天前上架 → 该有 NEW；且 high === low（新标的常见）→ 区间条必须不画
+    T('SOLUSDT', 'SOL', 'crypto', 'Layer-1', 2.0, 1.5e9, true,
+      { onboardDate: NOW - 3 * DAY, high: 100, low: 100 }),
+    // 30 天前上架：刚过 14 天阈值。没有这个样本的话，把阈值从 14 调到
+    // 400 也不会有任何用例报红 —— 变异测试实测存活过一次
+    T('NVDAUSDT', 'NVDA', 'us_equity', 'other', 0.6, 2.2e7, false,
+      { onboardDate: NOW - 30 * DAY }),
   ]
   const { dom, doc, html } = await mount({
     tag: 'market', hash: '#/market',
@@ -253,6 +265,36 @@ testCase('行情看板', async () => {
   check('标的列不写死宽度（吃剩余空间）',
         !doc.querySelectorAll('.market-table colgroup col')[1].getAttribute('style'))
   check('行情页用占满视口的布局', !!doc.querySelector('.page.fill'))
+
+  // ---- 零成本三项：区间条 / 结算倒计时 / 新上架角标 ----
+  const dots = [...doc.querySelectorAll('.range-dot')]
+  check('24h 区间条已画', dots.length === 3, `${dots.length} 根（SOL 的 high===low 不该画）`)
+  check('区间条位置按 (last-low)/(high-low) 算',
+        /left:\s*50%/.test(dots[0].getAttribute('style') || ''),
+        dots[0].getAttribute('style'))
+  // high === low 时除零会得到 NaN，CSS 里 left:NaN% 整条规则被丢弃，
+  // 圆点默认贴最左 —— 看着像「就在 24h 最低点」，是会误导判断的假信号
+  const solRow = [...doc.querySelectorAll('tbody tr')].find(
+    (tr) => tr.textContent.includes('SOL'))
+  check('区间为零时不画条（除零会造出假信号）',
+        !solRow.querySelector('.range'))
+
+  check('新上架打了 NEW 角标',
+        solRow.querySelector('.tag.new')?.textContent === 'NEW')
+  const rowOf = (name) => [...doc.querySelectorAll('tbody tr')].find(
+    (tr) => tr.textContent.includes(name))
+  check('老标的不打 NEW', !rowOf('BTC').querySelector('.tag.new'))
+  // 30 天 > 14 天阈值，必须不打 —— 这条才真正守住阈值本身。
+  // 注：把阈值从 14 改成 20 是等价变异，这里抓不住，也不该抓 ——
+  // 样本是 3 天和 30 天，两个阈值下行为一样。要抓就得放 15 天和 19 天的
+  // 样本，那是在钉一个产品判断出来的常数，不是在测行为。
+  check('刚过阈值的不打 NEW', !rowOf('NVDA').querySelector('.tag.new'))
+  check('全表只有一个 NEW', doc.querySelectorAll('.tag.new').length === 1,
+        `${doc.querySelectorAll('.tag.new').length} 个`)
+
+  check('资金费率下有结算倒计时',
+        [...doc.querySelectorAll('.sub-line')].some((e) => e.textContent === '2h13m'),
+        JSON.stringify([...doc.querySelectorAll('.sub-line')].map((e) => e.textContent)))
 
   // ---- 二级板块筛选 ----
   const chips = () => [...doc.querySelectorAll('.chips button')].map((b) => b.textContent)

@@ -313,6 +313,40 @@ tbody tr.clickable:hover { box-shadow: inset 2px 0 0 var(--accent); }
   background: var(--panel-3); color: var(--text-dim);
   border: 1px solid transparent;
 }
+/* 新上架角标。阈值 14 天，实测全市场约 5 个 —— 再宽就成了满屏噪声 */
+.tag.new {
+  background: rgba(41, 98, 255, .16); color: var(--accent-lit);
+  border-color: rgba(41, 98, 255, .35);
+}
+
+/* 单元格里的第二行小字（如资金费率下面的结算倒计时）。
+   显式设 color 与 font-weight：外层 td 带着涨跌色，不覆盖的话
+   倒计时会跟着变红变绿，看着像它自己在涨跌。 */
+.sub-line {
+  display: block; margin-top: 2px;
+  font-size: var(--fs-sm); font-weight: 400; color: var(--text-dim);
+  letter-spacing: .2px;
+}
+
+/* 24h 区间条：当前价在 [最低, 最高] 里的位置。
+   左红右绿和涨跌同一套色，贴左 = 在 24h 低位，贴右 = 高位。 */
+.price-cell { line-height: 1.3; }
+.range {
+  display: block; position: relative; height: 3px; margin-top: 5px;
+  border-radius: 2px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--down) 55%, transparent),
+    var(--panel-3) 50%,
+    color-mix(in srgb, var(--up) 55%, transparent));
+}
+.range-dot {
+  position: absolute; top: -1px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text); transform: translateX(-50%);
+  /* 描一圈底色，圆点压在轨道上时边界才清楚 */
+  box-shadow: 0 0 0 1.5px var(--panel);
+}
+
 .tag.live {
   background: rgba(38, 166, 154, .14); color: var(--up-lit);
   border-color: rgba(38, 166, 154, .3);
@@ -551,6 +585,12 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
     width: auto; padding: 0; z-index: 1;
   }
   .cards td.card-corner::before { content: none; }
+
+  /* 价格格在卡片里换行，让区间条独占一行 —— 不然它会被当成
+     flex 行里的一个子项，压成看不出位置的一小段 */
+  .cards td.price-cell { flex-wrap: wrap; }
+  .cards td.price-cell .range { flex: 0 0 100%; margin-top: 7px; }
+  .sub-line { display: inline; margin: 0 0 0 8px; }
 
   /* 卡片模式下表格不再需要限高滚动 */
   .table-scroll { max-height: none; }

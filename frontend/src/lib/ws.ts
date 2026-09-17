@@ -1,7 +1,6 @@
 /** 紧凑帧的字段顺序，与后端 routers/market.py 的 FRAME_FIELDS 一致 */
 export interface LiveRow {
-  symbol: string; last: number; chgPct: number; quoteVolume: number
-  high: number; low: number; fundingRate: number; markPrice: number
+  symbol: string; last: number; chgPct: number; markPrice: number
 }
 
 type Handler = (rows: Map<string, LiveRow>) => void
@@ -10,11 +9,7 @@ const decode = (r: unknown[]): LiveRow => ({
   symbol: r[0] as string,
   last: r[1] as number,
   chgPct: r[2] as number,
-  quoteVolume: r[3] as number,
-  high: r[4] as number,
-  low: r[5] as number,
-  fundingRate: r[6] as number,
-  markPrice: r[7] as number,
+  markPrice: r[3] as number,
 })
 
 /**
