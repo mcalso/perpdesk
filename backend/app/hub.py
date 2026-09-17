@@ -10,11 +10,15 @@
 
 也就是说：你关注的标的是实时的，全市场榜单 5~20 秒刷新。正确性优先于实时性 ——
 标记价直接决定持仓估值，宁可慢几秒也不能错。
+
+对前端的推送是**按需 + 增量**的：客户端用 viewport 消息声明自己此刻需要哪些
+标的，只有这些标的、且只有值变了的行才会被推出去。详见 Subscriber。
 """
 import asyncio
 import json
 import logging
 import time
+from collections.abc import Iterable
 from typing import Any
 
 import websockets
@@ -22,6 +26,29 @@ import websockets
 from . import binance, config
 
 log = logging.getLogger("perpdesk.hub")
+
+
+class Subscriber:
+    """一条前端连接。
+
+    symbols 为 None 表示客户端还没上报视口，此时一行都不推 —— 首屏数据由
+    REST /api/market/tickers 提供，WS 只负责让「看得见的那些行」跳动。
+
+    为什么必须按视口推：早先这里无条件推全市场 718 行，1 秒一帧。实测
+    未压缩 61.7 KB、permessage-deflate 压缩后仍有 25.6 KB，合 204 kbps，
+    而部署机的上行只有约 1 Mbps —— 一个标签页就吃掉大半。改成只推可见的
+    约 110 行后，端到端实测 3.1 kbps，降到 1/66。
+
+    sent 缓存每个标的上一次发出去的那一行，值没变就不再发。行情里绝大多数
+    标的在相邻两秒是完全不动的，这一步几乎白送。
+    """
+
+    __slots__ = ("queue", "symbols", "sent")
+
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        self.symbols: list[str] | None = None
+        self.sent: dict[str, list] = {}
 
 
 class TickerHub:
@@ -38,7 +65,7 @@ class TickerHub:
         self.last_book_at = 0.0
         # 由 main 注入：自选变化时重新汇总「自选 ∪ 持仓」
         self.on_watchlist_change: Any = None
-        self._subscribers: set[asyncio.Queue] = set()
+        self._subscribers: set[Subscriber] = set()
         self._tasks: list[asyncio.Task] = []
         self._resubscribe = asyncio.Event()
 
@@ -106,7 +133,9 @@ class TickerHub:
             try:
                 rows = await binance.tickers_24h(retries=1)
                 if rows:
-                    # 保留而非替换：拿不到的标的宁可用旧值，也别从榜单上消失
+                    # 保留而非替换：拿不到的标的宁可用旧值，也别从榜单上消失。
+                    # 真正下架的由 _prune_delisted() 按 exchangeInfo 剔除，
+                    # 两者判据不同，不能混为一谈。
                     self.snapshot.update({k: v for k, v in rows.items()
                                           if not self.meta or k in self.meta})
                     self.last_rest_ok = time.time()
@@ -123,12 +152,37 @@ class TickerHub:
         while True:
             try:
                 self.meta = await binance.exchange_info(force=True)
+                self._prune_delisted()
                 await asyncio.sleep(config.META_REFRESH_INTERVAL)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 log.warning("exchangeInfo refresh failed: %s", exc)
                 await asyncio.sleep(60.0)
+
+    def _prune_delisted(self) -> None:
+        """把已下架的标的从快照里清掉。
+
+        判据只认 meta —— exchangeInfo 里 status 不再是 TRADING 的才算下架。
+        不能拿「本次 ticker/24hr 没返回它」当判据：那正是 _ticker_loop 里
+        update() 刻意要容忍的抽风，按它删会让榜单闪烁。
+
+        meta 为空说明 exchangeInfo 还没拉到（启动瞬间或连续失败），这时一个
+        都不能删，否则整张表会被清空。
+
+        不做这件事的后果是一行「幽灵」：premium 每轮按 meta 重建会剔除它，
+        snapshot 却因为 update() 只进不出而永久保留，于是那一行冻结在最后
+        一口价上永不再变，资金费率显示 0，还会进 mark_prices() 污染持仓估值。
+        """
+        if not self.meta:
+            return
+        gone = self.snapshot.keys() - self.meta.keys()
+        if not gone:
+            return
+        for sym in gone:
+            self.snapshot.pop(sym, None)
+            self.book.pop(sym, None)
+        log.info("已下架，移出快照: %s", ", ".join(sorted(gone)))
 
     # ---------- WS：自选标的实时盘口 ----------
 
@@ -195,29 +249,72 @@ class TickerHub:
 
     # ---------- 对前端广播 ----------
 
-    def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=2)
-        self._subscribers.add(q)
-        return q
+    def subscribe(self) -> Subscriber:
+        sub = Subscriber()
+        self._subscribers.add(sub)
+        return sub
 
-    def unsubscribe(self, q: asyncio.Queue) -> None:
-        self._subscribers.discard(q)
+    def unsubscribe(self, sub: Subscriber) -> None:
+        self._subscribers.discard(sub)
+
+    def set_viewport(self, sub: Subscriber, symbols: Iterable[Any]) -> None:
+        """客户端声明它此刻需要哪些标的。重复与空值忽略，超出上限直接截断。
+
+        截断是有意的：上限存在的意义就是不让任何客户端把整个市场要过去。
+        """
+        wanted: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            # 只认字符串：JSON 里的 null / 数字经 str() 会变成 "NONE" / "3"
+            # 这种看着像 symbol 的垃圾，白占视口名额
+            if not isinstance(raw, str):
+                continue
+            sym = raw.strip().upper()
+            if not sym or sym in seen:
+                continue
+            seen.add(sym)
+            wanted.append(sym)
+            if len(wanted) >= config.VIEWPORT_MAX:
+                log.warning("viewport 超过上限 %d，已截断", config.VIEWPORT_MAX)
+                break
+        sub.symbols = wanted
+        # 移出视口的标的要从 sent 里清掉。否则它再次进入视口时，会因为
+        # 「值和上次发的一样」被增量逻辑跳过，那一行就再也不更新了。
+        for stale in sub.sent.keys() - seen:
+            sub.sent.pop(stale, None)
+
+    def frame_for(self, sub: Subscriber) -> str | None:
+        """生成这一秒该发给某个订阅者的帧；无事可发时返回 None。
+
+        两种 None：客户端还没上报视口（一行都不该推），以及视口里的行
+        这一秒全都没动（增量为空，一个字节都不必发）。
+        """
+        if not sub.symbols:
+            return None
+        rows = []
+        for row in self.compact_rows(sub.symbols):
+            if sub.sent.get(row[0]) == row:
+                continue                  # 这一秒没动，不必重发
+            sub.sent[row[0]] = row
+            rows.append(row)
+        if not rows:
+            return None
+        return json.dumps({"type": "tickers", "rows": rows})
 
     async def _broadcast_loop(self) -> None:
         while True:
             await asyncio.sleep(config.BROADCAST_INTERVAL)
-            if not self._subscribers:
-                continue
-            payload = json.dumps({"type": "tickers", "rows": self.compact_rows(),
-                                  "status": self.status()})
-            for q in list(self._subscribers):
-                if q.full():                  # 慢客户端：丢旧帧只保最新
+            for sub in list(self._subscribers):
+                payload = self.frame_for(sub)
+                if payload is None:
+                    continue
+                if sub.queue.full():      # 慢客户端：丢旧帧只保最新
                     try:
-                        q.get_nowait()
+                        sub.queue.get_nowait()
                     except asyncio.QueueEmpty:
                         pass
                 try:
-                    q.put_nowait(payload)
+                    sub.queue.put_nowait(payload)
                 except asyncio.QueueFull:
                     pass
 
@@ -228,10 +325,17 @@ class TickerHub:
         b = self.book.get(sym)
         return b["mid"] if b else fallback
 
-    def compact_rows(self) -> list[list]:
-        """紧凑数组帧，字段顺序与 market.py 的 schema 消息一致。"""
+    def compact_rows(self, symbols: Iterable[str] | None = None) -> list[list]:
+        """紧凑数组帧，字段顺序与 market.py 的 FRAME_FIELDS 一致。
+
+        symbols 为 None 时返回全市场；给定时只返回其中存在的标的
+        （客户端可能要到已下架或拼错的 symbol，静默跳过即可）。
+        """
         rows = []
-        for sym, t in self.snapshot.items():
+        for sym in (self.snapshot.keys() if symbols is None else symbols):
+            t = self.snapshot.get(sym)
+            if t is None:
+                continue
             p = self.premium.get(sym) or {}
             last = self._live_price(sym, t["last"])
             rows.append([

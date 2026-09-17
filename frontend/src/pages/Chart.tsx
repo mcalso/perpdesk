@@ -33,6 +33,14 @@ export default function Chart() {
   useEffect(() => { loadWatch() }, [])
   useEffect(() => liveFeed.subscribe((m) => setLive(new Map(m))), [])
 
+  // 图表页要的是当前标的 + 左侧自选列表里的那些
+  const viewportKey = useMemo(
+    () => [...new Set([symbol, ...watch.map((w) => w.symbol)])].sort().join(','),
+    [symbol, watch],
+  )
+  useEffect(() => { liveFeed.want('chart', viewportKey.split(',')) }, [viewportKey])
+  useEffect(() => () => liveFeed.drop('chart'), [])
+
   useEffect(() => {
     let alive = true
     setUseTV(null)

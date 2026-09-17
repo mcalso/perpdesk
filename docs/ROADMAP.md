@@ -34,6 +34,8 @@
 | — | 资讯快讯（`_m006`） | 金十源，可插拔；关联标的靠中文别名表 |
 | — | 持仓页图表组 | 一大四小可切换；`/api/portfolio/daily` 按本地日界分桶 |
 | — | UI 一致性梳理 | 内联样式 54 → 23 处；行情看板数据条 |
+| — | 行情推送按视口 + 增量 | 客户端上报需要哪些标的，只推这些、只推变了的行。实测 204 → 3.1 kbps（1/66）。这是「给行情表加列」的前置条件，详见 [DATA_SOURCES.md](DATA_SOURCES.md) 第 9 节 |
+| — | 下架标的剔除 | `snapshot` 用 `update()` 只进不出，下架合约会永久冻结成一行幽灵，还会污染 `mark_prices()` 的持仓估值 |
 
 ## 待定：需要你先做决定
 
@@ -85,3 +87,11 @@ Bybit、或者币安的币本位（同所不同产品线，抽象层次更浅）
   签不出证书。`duckdns.org` 在列表里。
 - **`sed -i` 不跟随符号链接**，会把 `sites-enabled` 里的链接换成普通文件，
   留下两份 server 块。
+- **「保留旧值防抽风」和「剔除已下架」是两条不同的判据** —— 前者看本轮 REST
+  有没有返回，后者看 exchangeInfo 还认不认。混成一条，要么榜单闪烁，要么留幽灵行。
+  见 `hub._prune_delisted()`。
+- **估算 WebSocket 带宽不能用单帧 gzip** —— `permessage-deflate` 默认开启且跨帧
+  保留压缩字典，真实值要用同一个 `compressobj` 连续压多帧才量得准。
+- **假实现要连静态常量一起给全** —— 冒烟里的 `WebSocket` mock 缺了 `OPEN`，
+  于是 `ws.readyState === WebSocket.OPEN` 退化成 `undefined === undefined` 恒真，
+  真崩溃反而被放过去了。

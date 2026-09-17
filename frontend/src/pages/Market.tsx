@@ -92,6 +92,17 @@ export default function Market() {
     [sorted, page],
   )
 
+  // 只让后端推「这一页看得见的 + 自选」。排序后比对字符串，所以价格跳动、
+  // 换排序方式都不会触发上报，只有成员真的变了（翻页/筛选/搜索）才发包。
+  const viewportKey = useMemo(
+    () => [...new Set([...pageRows.map((r) => r.symbol), ...watch])].sort().join(','),
+    [pageRows, watch],
+  )
+  useEffect(() => {
+    liveFeed.want('market', viewportKey ? viewportKey.split(',') : [])
+  }, [viewportKey])
+  useEffect(() => () => liveFeed.drop('market'), [])
+
   // 按标的数量排序，常用的排前面
   const classes = useMemo(() => {
     const count = new Map<string, number>()
