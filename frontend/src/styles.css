@@ -682,3 +682,77 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
 }
 .settings-link:hover { background: var(--panel-2); color: var(--text); }
 .settings-link.active { background: var(--panel-3); color: var(--accent-lit); }
+
+/* ---------- 工具类 ----------
+ * 这几个模式原本散在各处手写：面板副标题写了 10 次 muted+fontWeight:400，
+ * flex:1/min-width:0 写了 4 次。抽出来之后调一处就能全站生效。 */
+.panel-sub {
+  font-weight: 400; color: var(--text-dim);
+  font-size: var(--fs-sm); letter-spacing: .2px;
+}
+.grow { flex: 1; min-width: 0; }
+.fs-lg { font-size: var(--fs-lg); }
+.fs-sm { font-size: var(--fs-sm); }
+.fs-xs { font-size: 10px; }
+.stat .value.sm { font-size: var(--fs-lg); }
+
+/* 面板里的提示条自带边距，不用每处手写 margin */
+.panel > .msg,
+.panel > .empty + .msg { margin: 12px 14px; }
+
+/* ---------- 表内数据条 ----------
+ * 给数字配一条按量级缩放的背景条，一眼看出分布 —— 纯数字列表要逐行比对，
+ * 有了条就是扫一眼的事。用 currentColor，涨绿跌红自动跟着文字色走。 */
+/* 用背景渐变而不是绝对定位的伪元素：<td> 的层叠上下文很特殊，
+   z-index:-1 的伪元素在不同浏览器里会跑到行背景后面去。
+   color-mix 让条子跟着文字色走，涨绿跌红自动成立。 */
+.bar-cell {
+  background-image: linear-gradient(
+    to left,
+    color-mix(in srgb, currentColor 16%, transparent) 0 var(--bar, 0%),
+    transparent var(--bar, 0%));
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: 100% calc(100% - 7px);
+  transition: background-size .3s var(--ease);
+}
+
+/* ---------- 涨跌比例条 ---------- */
+.ratio {
+  display: flex; height: 5px; border-radius: 3px; overflow: hidden;
+  background: var(--panel-3); margin-top: 8px;
+}
+.ratio span { display: block; transition: width .5s var(--ease); }
+.ratio .up-part { background: linear-gradient(90deg, var(--up), var(--up-lit)); }
+.ratio .down-part { background: linear-gradient(90deg, var(--down-lit), var(--down)); }
+
+/* 领涨/领跌卡里的标的：是个按钮但不该长得像按钮 */
+.lead {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: none; padding: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.lead:hover:not(:disabled) { background: none; border: none; opacity: .8; }
+.lead .lead-sym { font-weight: 600; }
+
+/* ---------- 顶栏大盘 ---------- */
+.pulse { display: flex; gap: 4px; margin-left: 4px; }
+.pulse-item {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 4px 9px; border-radius: var(--r-sm);
+  background: transparent; border: 1px solid transparent;
+  font-size: var(--fs-sm); font-variant-numeric: tabular-nums;
+  cursor: pointer; white-space: nowrap;
+}
+.pulse-item:hover:not(:disabled) { background: var(--panel-2); border-color: var(--border); }
+.pulse-sym { color: var(--text-dim); font-weight: 600; letter-spacing: .3px; }
+
+/* 窄屏优先保证导航可用，大盘先让位 */
+@media (max-width: 1180px) { .pulse-item:nth-child(n+2) { display: none; } }
+@media (max-width: 980px) { .pulse { display: none; } }
+
+/* 页面内的区块标题：不是面板，只是一行带说明的标题 */
+.section-head {
+  border: none; padding: 4px 0; color: var(--text-dim);
+}

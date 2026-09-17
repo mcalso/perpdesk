@@ -79,7 +79,7 @@ export default function Chart() {
     <div className="page">
       <div className="chart-layout">
         <div className="panel">
-          <div className="panel-head">自选<span className="muted" style={{ fontWeight: 400 }}>{rows.length}</span></div>
+          <div className="panel-head">自选<span className="panel-sub">{rows.length}</span></div>
           <div className="panel-body" style={{ padding: 10 }}>
             <div className="toolbar">
               <input
@@ -87,7 +87,7 @@ export default function Chart() {
                 value={adding}
                 onChange={(e) => setAdding(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && add()}
-                style={{ flex: 1, minWidth: 0 }}
+                className="grow"
               />
               <button className="primary" onClick={add}>+</button>
             </div>
@@ -103,7 +103,7 @@ export default function Chart() {
                 <SymbolIcon symbol={r.symbol} size={22} />
                 <div>
                   <div className="sym">{r.base || r.symbol.replace('USDT', '')}</div>
-                  <div className="muted" style={{ fontSize: 10 }}>
+                  <div className="muted fs-xs">
                     {r.live ? '实时' : '30s'}
                   </div>
                 </div>
@@ -123,7 +123,7 @@ export default function Chart() {
             <div className="panel-head">
               <div className="sym-cell">
                 <SymbolIcon symbol={symbol} size={22} />
-                <span style={{ fontSize: 15 }}>{symbol}</span>
+                <span className="fs-lg">{symbol}</span>
                 {useTV && tvSymbol && !tvSymbol.includes(symbol) && (
                   <span className="tag" title="该合约在 TradingView 上的符号">
                     {tvSymbol.replace('BINANCE:', '')}
@@ -132,7 +132,7 @@ export default function Chart() {
               </div>
               {current && (
                 <>
-                  <span className="mono" style={{ fontSize: 15 }}>{fmtPrice(current.last)}</span>
+                  <span className="mono fs-lg">{fmtPrice(current.last)}</span>
                   <span className={`mono ${trendClass(current.chgPct)}`}>{fmtPct(current.chgPct)}</span>
                   <span className="muted">
                     24h 量 ${fmtCompact(current.quoteVolume)} · 资金费率{' '}

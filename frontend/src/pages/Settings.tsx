@@ -56,7 +56,7 @@ function AccountCard({ a, onChange }: { a: AccountRow; onChange: () => void }) {
         <span className={`tag ${a.configured ? 'live' : ''}`}>
           {a.configured ? '已配凭据' : '未配凭据'}
         </span>
-        <span className="muted" style={{ fontSize: 11 }}>
+        <span className="muted fs-sm">
           {a.exchange} · {a.market} · {a.trades} 笔成交
         </span>
         <div className="spacer" />
@@ -96,7 +96,7 @@ function AccountCard({ a, onChange }: { a: AccountRow; onChange: () => void }) {
             <button className="sm" onClick={() => { setShowCreds(false); setKey(''); setSecret('') }}>
               取消
             </button>
-            <span className="muted" style={{ fontSize: 11 }}>
+            <span className="muted fs-sm">
               交易所侧请只勾选读取权限，不要开交易与提现
             </span>
           </div>
@@ -142,7 +142,7 @@ export default function Settings() {
       <div className="panel">
         <div className="panel-head">
           交易所账户
-          <span className="muted" style={{ fontWeight: 400 }}>
+          <span className="panel-sub">
             一个人可以在多个交易所、多个账户下交易；成交与盈亏按账户隔离统计
           </span>
         </div>
@@ -163,7 +163,7 @@ export default function Settings() {
       </div>
 
       <div className="row">
-        <div className="panel" style={{ flex: 1, minWidth: 0 }}>
+        <div className="panel grow">
           <div className="panel-head">站点口令</div>
           <div className="panel-body">
             <form onSubmit={changePw} className="col" style={{ gap: 8, maxWidth: 320 }}>
@@ -184,7 +184,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <div className="panel" style={{ flex: 1, minWidth: 0 }}>
+        <div className="panel grow">
           <div className="panel-head">登录中的设备<span className="muted">{sessions.length}</span></div>
           <div className="panel-body">
             <div className="acct-sessions" style={{ maxHeight: 160 }}>

@@ -350,9 +350,9 @@ export default function Portfolio() {
     <div className="page col">
       <ExchangeAccount onSynced={reload} />
 
-      <div className="panel-head" style={{ border: 'none', padding: '4px 0', color: 'var(--text-dim)' }}>
+      <div className="panel-head section-head">
         历史盈亏分析
-        <span className="muted" style={{ fontWeight: 400 }}>
+        <span className="panel-sub">
           按成交流水回放，统计已落袋的损益；当前持仓与浮盈以上方交易所数据为准
         </span>
         <div className="spacer" />
@@ -404,7 +404,7 @@ export default function Portfolio() {
 
       {closed.length > 0 && (
         <div className="panel">
-          <div className="panel-head">已平仓标的<span className="muted" style={{ fontWeight: 400 }}>{closed.length}</span></div>
+          <div className="panel-head">已平仓标的<span className="panel-sub">{closed.length}</span></div>
           <table className="cards">
             <thead>
               <tr>
@@ -517,7 +517,7 @@ export default function Portfolio() {
       <div className="panel">
         <div className="panel-head">
           交易流水
-          <span className="muted" style={{ fontWeight: 400 }}>
+          <span className="panel-sub">
             共 {tradeTotal.toLocaleString()} 笔
           </span>
           <div className="spacer" />

@@ -41,8 +41,14 @@ const fixtures = {
   })),
 }
 
-/** 起一个干净的 jsdom，挂好浏览器全局，返回 { dom, calls } */
-async function mount({ hash = '#/market', routes = {}, tag }) {
+/**
+ * 起一个干净的 jsdom，挂好浏览器全局。
+ *
+ * `until` 给了就轮询等它成立，而不是睡一个固定时长 —— recharts 要等
+ * ResizeObserver 回调才开始画，固定睡法在机器忙时会偶发失败，而偶发失败的
+ * 测试比没有测试更糟：它训练你忽略红色。（本文件真出现过这种抖动。）
+ */
+async function mount({ hash = '#/market', routes = {}, tag, until, timeout = 6000 }) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
                         { url: `http://localhost/${hash}`, pretendToBeVisual: true })
   globalThis.window = dom.window
@@ -85,11 +91,19 @@ async function mount({ hash = '#/market', routes = {}, tag }) {
   console.error = (...a) => { errors.push(a.map(String).join(' ')) }
 
   await import(pathToFileURL(join(DIST, ENTRY)).href + `?case=${encodeURIComponent(tag)}`)
-  await new Promise((r) => setTimeout(r, 900))
+  const doc = dom.window.document
+  if (until) {
+    const deadline = Date.now() + timeout
+    while (Date.now() < deadline && !until(doc)) {
+      await new Promise((r) => setTimeout(r, 60))
+    }
+  } else {
+    await new Promise((r) => setTimeout(r, 800))
+  }
   console.error = origErr
 
-  return { dom, doc: dom.window.document, calls, errors,
-           html: dom.window.document.getElementById('root').innerHTML }
+  return { dom, doc, calls, errors,
+           html: doc.getElementById('root').innerHTML }
 }
 
 const results = []
@@ -128,6 +142,8 @@ testCase('未登录', async () => {
 testCase('已登录', async () => {
   const { html, errors } = await mount({ tag: 'authed', routes: { '/auth/me': AUTHED } })
   check('进入主界面', html.includes('行情看板') && !html.includes('login-card'))
+  // 顶栏大盘靠 WS 推数据，冒烟里 WS 是假的，所以只验它不渲染时也不报错
+  check('顶栏无 WS 时不崩', !html.includes('pulse-item'))
   check('无渲染报错', errors.filter((e) => /Error|错误/.test(e)).length === 0,
         errors[0]?.slice(0, 80) || '')
 })
@@ -153,6 +169,7 @@ testCase('未配置 API 凭据（回归：曾因 hook 顺序白屏）', async ()
 testCase('图表组', async () => {
   const { doc, dom } = await mount({
     tag: 'deck', hash: '#/portfolio',
+    until: (d) => d.querySelectorAll('.deck-thumb-body svg').length === 4,
     routes: {
       '/auth/me': AUTHED,
       '/account/status': { configured: true, hasKey: true, hasSecret: true, hint: '' },
@@ -167,18 +184,54 @@ testCase('图表组', async () => {
 
   check('默认放大第一张', title().startsWith('已实现盈亏曲线'), title().slice(0, 12))
   check('轨道是其余 N-1 张', thumbs().length === 4, JSON.stringify(thumbs()))
-  check('缩略图画出了图形', doc.querySelectorAll('.deck-thumb-body svg').length === 4)
+  check('缩略图画出了图形', doc.querySelectorAll('.deck-thumb-body svg').length === 4,
+        `svg=${doc.querySelectorAll('.deck-thumb-body svg').length} thumb=${doc.querySelectorAll('.deck-thumb-body').length}`)
 
   const before = title().slice(0, 7)
   const target = doc.querySelectorAll('.deck-thumb')[1]
   const label = target.querySelector('.deck-thumb-title').textContent
   target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-  await new Promise((r) => setTimeout(r, 300))
+  for (let i = 0; i < 60 && !title().startsWith(label); i++) {
+    await new Promise((r) => setTimeout(r, 40))
+  }
 
   check('点击后换到大图位', title().startsWith(label), `→ ${title().slice(0, 12)}`)
   check('原大图退回轨道', thumbs().includes(before))
   check('轨道恒为 N-1', thumbs().length === 4)
   check('轨道保持原序', thumbs()[0] === before, JSON.stringify(thumbs()))
+})
+
+testCase('行情看板', async () => {
+  const tickers = [
+    { symbol: 'BTCUSDT', base: 'BTC', assetClass: 'crypto', last: 121000, open: 0, high: 0,
+      low: 0, chgPct: 3.2, quoteVolume: 9.8e9, volume: 0, trades: 0, fundingRate: 0.0001,
+      markPrice: 121000, bid: null, ask: null, live: true, ts: 0 },
+    { symbol: 'ETHUSDT', base: 'ETH', assetClass: 'crypto', last: 4200, open: 0, high: 0,
+      low: 0, chgPct: -1.4, quoteVolume: 3.1e9, volume: 0, trades: 0, fundingRate: -0.0002,
+      markPrice: 4200, bid: null, ask: null, live: true, ts: 0 },
+    { symbol: 'NVDAUSDT', base: 'NVDA', assetClass: 'us_equity', last: 180, open: 0, high: 0,
+      low: 0, chgPct: 0.6, quoteVolume: 2.2e7, volume: 0, trades: 0, fundingRate: 0,
+      markPrice: 180, bid: null, ask: null, live: false, ts: 0 },
+  ]
+  const { doc, html } = await mount({
+    tag: 'market', hash: '#/market',
+    routes: {
+      '/auth/me': AUTHED,
+      '/market/tickers': { rows: tickers, total: 3, status: {} },
+      '/api/watchlist': { rows: [] },
+    },
+    until: (d) => d.querySelectorAll('tbody tr').length === 3,
+  })
+  check('表格渲染出所有标的', doc.querySelectorAll('tbody tr').length === 3)
+  check('涨跌比例条已画', doc.querySelectorAll('.ratio .up-part').length === 1)
+  check('领涨/领跌可点击', doc.querySelectorAll('.lead').length === 2,
+        `${doc.querySelectorAll('.lead').length} 个`)
+  const bars = [...doc.querySelectorAll('.bar-cell')]
+  check('数据条已套用', bars.length === 6, `${bars.length} 格`)
+  check('数据条按量级缩放',
+        bars.some((b) => /--bar:\s*100%/.test(b.getAttribute('style') || '')),
+        bars.slice(0, 2).map((b) => b.getAttribute('style')).join(' | '))
+  check('未出现遗留的内联 fontWeight', !html.includes('font-weight: 400'))
 })
 
 testCase('资讯页', async () => {
@@ -196,6 +249,7 @@ testCase('资讯页', async () => {
   ]
   const { doc, html } = await mount({
     tag: 'news', hash: '#/news',
+    until: (d) => d.querySelectorAll('.flash').length === 3,
     routes: {
       '/auth/me': AUTHED,
       '/api/news': { rows, filteredBy: [],
@@ -220,6 +274,7 @@ testCase('设置页', async () => {
   ]
   const { doc, dom, html } = await mount({
     tag: 'settings', hash: '#/settings',
+    until: (d) => d.querySelectorAll('.acct-card').length === 2,
     routes: {
       '/auth/me': AUTHED,
       '/account/accounts': { rows: accounts, defaultId: 1 },

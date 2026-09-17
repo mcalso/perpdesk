@@ -151,7 +151,7 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
       <div className="panel" style={{ flex: 3, minWidth: 0 }}>
         <div className="panel-head">
           交易所持仓
-          <span className="muted" style={{ fontWeight: 400 }}>
+          <span className="panel-sub">
             浮盈实时 · 持仓结构每 {data?.pollInterval ?? 6}s 校准
             {data?.ageSec != null && ` · ${data.ageSec.toFixed(0)}s 前`}
             {data?.error && ` · ⚠ ${data.error}`}
@@ -161,8 +161,8 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
             {busy ? '同步中…' : '同步近 30 天成交到本地'}
           </button>
         </div>
-        {err && <div className="msg err" style={{ margin: 12 }}>{err}</div>}
-        {syncMsg && <div className="msg info" style={{ margin: 12 }}>{syncMsg}</div>}
+        {err && <div className="msg err">{err}</div>}
+        {syncMsg && <div className="msg info">{syncMsg}</div>}
         {data?.positions?.length ? (
           <table className="cards">
             <thead>
@@ -237,10 +237,10 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
         )}
       </div>
 
-      <div className="panel" style={{ flex: 1, minWidth: 0 }}>
+      <div className="panel grow">
         <div className="panel-head">
           持仓分布
-          <span className="muted" style={{ fontWeight: 400 }}>按名义敞口</span>
+          <span className="panel-sub">按名义敞口</span>
         </div>
         <div className="panel-body" style={{ height: 300 }}>
           {pie.length ? (

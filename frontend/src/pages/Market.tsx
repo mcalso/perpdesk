@@ -73,6 +73,16 @@ export default function Market() {
 
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, 'quoteVolume')
 
+  // 数据条按「当前这一页」的量级归一化，而不是全市场：
+  // 按全市场算的话，除了头部几个标的其余全是贴边的细线，等于没有。
+  const scale = useMemo(() => {
+    const page = sorted.slice(0, PAGE_SIZE)
+    return {
+      chg: Math.max(1e-9, ...page.map((r) => Math.abs(r.chgPct))),
+      vol: Math.max(1e-9, ...page.map((r) => r.quoteVolume)),
+    }
+  }, [sorted])
+
   // 分页而不是截断：718 个标的全都要能翻到，同时把每秒重渲染的 DOM 控制在一页内
   const [page, setPage] = useState(0)
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
@@ -109,6 +119,13 @@ export default function Market() {
         <div className="stat">
           <div className="label">涨 / 跌</div>
           <div className="value"><span className="up">{stats.up}</span> / <span className="down">{stats.down}</span></div>
+          {/* 比例条：市场情绪扫一眼就有，比读两个数字快 */}
+          <div className="ratio" title={`${stats.up} 涨 / ${stats.down} 跌`}>
+            <span className="up-part"
+                  style={{ width: `${stats.up + stats.down ? (stats.up / (stats.up + stats.down)) * 100 : 50}%` }} />
+            <span className="down-part"
+                  style={{ width: `${stats.up + stats.down ? (stats.down / (stats.up + stats.down)) * 100 : 50}%` }} />
+          </div>
           <div className="sub">{stats.n ? `${((stats.up / stats.n) * 100).toFixed(0)}% 上涨` : '—'}</div>
         </div>
         <div className="stat">
@@ -116,24 +133,28 @@ export default function Market() {
           <div className="value">${fmtCompact(stats.vol)}</div>
           <div className="sub">全市场合计</div>
         </div>
-        <div className="stat">
-          <div className="label">领涨</div>
-          <div className="value up" style={{ fontSize: 16 }}>
-            {stats.top ? `${stats.top.base} ${fmtPct(stats.top.chgPct)}` : '—'}
+        {([['领涨', stats.top, 'up'], ['领跌', stats.bottom, 'down']] as const).map(([label, r, cls]) => (
+          <div className="stat" key={label}>
+            <div className="label">{label}</div>
+            <div className={`value sm ${cls}`}>
+              {r ? (
+                <button className="lead" onClick={() => nav(`/chart/${r.symbol}`, { viewTransition: true })}
+                        title={`查看 ${r.symbol} 图表`}>
+                  <SymbolIcon symbol={r.symbol} size={20} />
+                  <span className="lead-sym">{r.base}</span>
+                  <span>{fmtPct(r.chgPct)}</span>
+                </button>
+              ) : '—'}
+            </div>
+            <div className="sub">{r ? `24h 成交额 $${fmtCompact(r.quoteVolume)}` : ''}</div>
           </div>
-        </div>
-        <div className="stat">
-          <div className="label">领跌</div>
-          <div className="value down" style={{ fontSize: 16 }}>
-            {stats.bottom ? `${stats.bottom.base} ${fmtPct(stats.bottom.chgPct)}` : '—'}
-          </div>
-        </div>
+        ))}
       </div>
 
       <div className="panel">
         <div className="panel-head">
           全市场行情
-          <span className="muted" style={{ fontWeight: 400 }}>
+          <span className="panel-sub">
             {sorted.length} 个标的{search || cls !== 'all' ? '（已过滤）' : ''}
           </span>
           <div className="seg">
@@ -154,7 +175,7 @@ export default function Market() {
             style={{ width: 180 }}
           />
         </div>
-        {err && <div className="msg err" style={{ margin: 12 }}>{err}</div>}
+        {err && <div className="msg err">{err}</div>}
         {loading ? (
           <TableSkeleton rows={12} cols={7} />
         ) : (
@@ -197,11 +218,13 @@ export default function Market() {
                     <FlashCell value={r.last} className="right mono" label="最新价">
                       {fmtPrice(r.last)}
                     </FlashCell>
-                    <FlashCell value={r.chgPct} className={`right mono ${trendClass(r.chgPct)}`}
-                               label="24h 涨跌">
+                    <FlashCell value={r.chgPct} className={`right mono bar-cell ${trendClass(r.chgPct)}`}
+                               label="24h 涨跌"
+                               bar={`${Math.min(100, (Math.abs(r.chgPct) / scale.chg) * 100)}%`}>
                       {fmtPct(r.chgPct)}
                     </FlashCell>
-                    <td className="right mono" data-label="24h 成交额">
+                    <td className="right mono bar-cell muted" data-label="24h 成交额"
+                        style={{ '--bar': `${(r.quoteVolume / scale.vol) * 100}%` } as React.CSSProperties}>
                       ${fmtCompact(r.quoteVolume)}
                     </td>
                     <td className={`right mono ${trendClass(r.fundingRate)}`} data-label="资金费率">

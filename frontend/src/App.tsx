@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { AccountSwitcher } from './components/AccountSwitcher'
+import { MarketPulse } from './components/MarketPulse'
 import { Login } from './components/Login'
 import { authState, useAuthState } from './lib/auth'
 import { api, type HubStatus } from './lib/api'
@@ -76,6 +77,7 @@ export default function App() {
           <NavLink to="/news" viewTransition
                    className={({ isActive }) => (isActive ? 'active' : '')}>资讯</NavLink>
         </nav>
+        <MarketPulse />
         <AccountSwitcher />
         <StatusChip />
         <NavLink to="/settings" viewTransition className="ghost sm settings-link"

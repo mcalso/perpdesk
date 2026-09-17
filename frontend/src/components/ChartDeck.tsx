@@ -27,7 +27,7 @@ export function ChartDeck({ charts, height = 300 }: { charts: ChartSpec[]; heigh
         <div className="panel-head">
           {current.title}
           {current.sub && (
-            <span className="muted" style={{ fontWeight: 400 }}>{current.sub}</span>
+            <span className="panel-sub">{current.sub}</span>
           )}
           <div className="spacer" />
           {current.badge && (
