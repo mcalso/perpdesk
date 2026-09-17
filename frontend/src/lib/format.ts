@@ -58,3 +58,36 @@ export const fmtDate = (ms: number): string =>
 /** 涨跌方向 → CSS class，统一红绿口径（绿涨红跌，国际惯例） */
 export const trendClass = (v: number | null | undefined): string =>
   v === null || v === undefined || v === 0 ? 'flat' : v > 0 ? 'up' : 'down'
+
+/** 上架多少天以内算「新」。14 天时全市场约 5 个，既有信号又不会满屏角标 */
+export const NEW_LISTING_DAYS = 14
+
+export const isNewListing = (onboardDate: number, now: number): boolean =>
+  onboardDate > 0 && now - onboardDate <= NEW_LISTING_DAYS * 86_400_000
+
+/**
+ * 距下次资金费结算还剩多久。
+ *
+ * 只精确到分钟：结算间隔是 8 小时（少数标的 4h/1h），秒级精度没有意义，
+ * 却会逼着整张表每秒重渲染一次。
+ */
+export const untilFunding = (at: number, now: number): string => {
+  if (!at) return ''
+  const ms = at - now
+  if (ms <= 0) return '结算中'
+  const m = Math.floor(ms / 60_000)
+  if (m >= 60) return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
+  return m >= 1 ? `${m}m` : '<1m'
+}
+
+/**
+ * 当前价在 24h 区间里的位置，0~100。
+ *
+ * high === low 时（新上架或完全无成交）返回 null，让调用方别画这根条 ——
+ * 除零会得到 NaN，CSS 里 `left: NaN%` 会被整条规则丢掉，圆点默认落在最左，
+ * 看上去像「贴着 24h 最低点」，是个会误导交易判断的假信号。
+ */
+export const rangePos = (low: number, high: number, last: number): number | null => {
+  if (!(high > low) || !last) return null
+  return Math.min(100, Math.max(0, ((last - low) / (high - low)) * 100))
+}

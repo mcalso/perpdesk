@@ -4,10 +4,12 @@ import { FlashCell } from '../components/FlashCell'
 import { SortHeader } from '../components/SortHeader'
 import { TableSkeleton } from '../components/TableSkeleton'
 import { SymbolIcon } from '../components/SymbolIcon'
+import { RangeBar } from '../components/RangeBar'
 import { api, type Ticker } from '../lib/api'
 import { useSort } from '../lib/useSort'
 import { liveFeed, type LiveRow } from '../lib/ws'
-import { fmtCompact, fmtPct, fmtPrice, trendClass } from '../lib/format'
+import { fmtCompact, fmtPct, fmtPrice, isNewListing, trendClass, untilFunding }
+  from '../lib/format'
 
 // Binance 现在既有加密永续，也有股票/指数代币化永续(TRADIFI_PERPETUAL)，分开看更清楚。
 // 类别列表从行情数据里动态取，Binance 新增品类时不用改代码。
@@ -39,6 +41,13 @@ export default function Market() {
   const [sector, setSector] = useState('all')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
+  // 结算倒计时和「新上架」判定都只要分钟级精度，20s 一跳足够。
+  // 共享一个 now，而不是每行各起一个定时器 —— 一页 100 行就是 100 个。
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 20000)
+    return () => clearInterval(t)
+  }, [])
 
   // 首屏与兜底刷新走 REST（字段最全），价格跳动交给 WS
   useEffect(() => {
@@ -276,14 +285,17 @@ export default function Market() {
                         <SymbolIcon symbol={r.symbol} />
                         <span className="sym-base">{r.base}</span>
                         <span className="sym-quote">/USDT</span>
+                        {isNewListing(r.onboardDate, now) && (
+                          <span className="tag new" title="最近 14 天内上架">NEW</span>)}
                         {r.assetClass === 'crypto'
                           ? r.sector !== 'other' && (
                             <span className="tag">{sectorLabel(r.sector)}</span>)
                           : <span className="tag">{classLabel(r.assetClass)}</span>}
                       </div>
                     </td>
-                    <FlashCell value={r.last} className="right mono" label="最新价">
+                    <FlashCell value={r.last} className="right mono price-cell" label="最新价">
                       {fmtPrice(r.last)}
+                      <RangeBar low={r.low} high={r.high} last={r.last} />
                     </FlashCell>
                     <FlashCell value={r.chgPct} className={`right mono bar-cell ${trendClass(r.chgPct)}`}
                                label="24h 涨跌"
@@ -296,6 +308,7 @@ export default function Market() {
                     </td>
                     <td className={`right mono ${trendClass(r.fundingRate)}`} data-label="资金费率">
                       {(r.fundingRate * 100).toFixed(4)}%
+                      <span className="sub-line">{untilFunding(r.nextFundingTime, now)}</span>
                     </td>
                     <td className="right" data-label="状态">
                       {r.live ? <span className="tag live">实时</span> : <span className="tag">30s</span>}

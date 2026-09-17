@@ -13,8 +13,13 @@ router = APIRouter(prefix="/api/market", tags=["market"])
 
 # 紧凑帧的字段顺序，与 hub.compact_rows() 一一对应。前端 lib/ws.ts 的
 # decode() 按这个顺序解包，三处必须同时改。
-FRAME_FIELDS = ["symbol", "last", "chgPct", "quoteVolume", "high", "low",
-                "fundingRate", "markPrice"]
+#
+# 只放**前端真的会读**的字段。原先还推 quoteVolume / high / low /
+# fundingRate，前端 decode 出来就扔 —— 三个页面合起来只用到 last、
+# chgPct、markPrice。那四个占了帧的一半，纯属白推。
+# 它们都改由 30s 一刷的 REST 快照提供：成交额、24h 极值、资金费率
+# 本来就是分钟级才动一次的量，没有每秒推的理由。
+FRAME_FIELDS = ["symbol", "last", "chgPct", "markPrice"]
 
 SORT_KEYS = {
     "chgPct": lambda r: r["chgPct"],
@@ -54,10 +59,14 @@ async def tickers(
     rows = rows[:limit]
     if slim:
         # 看板只用得上这几个字段；全量字段 718 行约 240KB，瘦身后不到三分之一
-        # sector 只走这条 REST（30s 一刷），刻意不进 WS 帧：
-        # 板块是静态属性，每秒重复推它纯属浪费刚省下来的带宽
-        keep = ("symbol", "base", "assetClass", "sector", "last", "chgPct",
-                "quoteVolume", "fundingRate", "markPrice", "live")
+        # 这几个都只走 REST（30s 一刷），刻意不进每秒的 WS 帧：
+        #   sector / onboardDate  静态属性，永远不变
+        #   nextFundingTime       8 小时才动一次，倒计时由前端本地算
+        #   high / low            24h 极值，一天里变不了几次
+        # 每秒重复推它们等于把按视口增量省下来的带宽又还回去。
+        keep = ("symbol", "base", "assetClass", "sector", "onboardDate",
+                "last", "chgPct", "quoteVolume", "high", "low",
+                "fundingRate", "markPrice", "nextFundingTime", "live")
         rows = [{k: r[k] for k in keep if k in r} for r in rows]
     return {"rows": rows, "total": total, "status": hub.status()}
 

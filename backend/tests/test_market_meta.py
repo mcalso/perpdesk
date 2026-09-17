@@ -124,3 +124,51 @@ def test_meta_without_subtype_falls_back():
     h.snapshot = {"OLDUSDT": {"symbol": "OLDUSDT", "last": 1.0, "chgPct": 0.0,
                               "quoteVolume": 0.0, "high": 1.0, "low": 1.0}}
     assert h.rich_rows()[0]["sector"] == "other"
+
+
+def test_slim_snapshot_carries_the_cheap_fields():
+    """三个「零成本」展示项所需的字段必须出现在 REST 快照里。
+
+    零成本指的是不用发新请求 —— high/low 来自 ticker/24hr，
+    nextFundingTime 来自 premiumIndex，onboardDate 来自 exchangeInfo，
+    三份数据本来就在取，只是以前被 slim 白名单挡掉了。
+
+    但它们**不是零带宽**：4 个字段 × 718 行，实测 REST 快照 25.3 → 36.4 KB
+    （gzip 后），30s 一刷合 +3 kbps。所以只放进 REST，绝不进每秒的 WS 帧。
+    """
+    import inspect
+
+    from backend.app.routers import market
+
+    src = inspect.getsource(market.tickers)
+    for field in ("high", "low", "nextFundingTime", "onboardDate"):
+        assert f'"{field}"' in src, f"slim 白名单缺 {field}"
+        assert field not in market.FRAME_FIELDS, f"{field} 不该进每秒推送的帧"
+
+    # 帧里只该留前端真的会读的字段。多一个都是每秒 × 视口行数的浪费。
+    assert market.FRAME_FIELDS == ["symbol", "last", "chgPct", "markPrice"]
+
+
+def test_rich_rows_exposes_onboard_date():
+    """新上架角标要靠 onboardDate；它在 meta 里，得显式搬进 rich_rows。"""
+    h = TickerHub()
+    h.meta = {"NEWUSDT": {"symbol": "NEWUSDT", "base": "NEW",
+                          "assetClass": "crypto", "sector": "Meme",
+                          "onboardDate": 1_700_000_000_000}}
+    h.snapshot = {"NEWUSDT": {"symbol": "NEWUSDT", "last": 1.0, "chgPct": 0.0,
+                              "quoteVolume": 0.0, "high": 1.2, "low": 0.8}}
+    row = h.rich_rows()[0]
+    assert row["onboardDate"] == 1_700_000_000_000
+    # 24h 极值也必须透出来，区间条要用
+    assert row["high"] == 1.2 and row["low"] == 0.8
+
+
+def test_missing_onboard_date_is_zero_not_none():
+    """缺字段时给 0 而不是 None —— 前端拿 now - onboardDate 做减法，
+    None 在 JS 里会变成 NaN，比较结果恒为 false，角标只是不显示；
+    但同样的值若进了别处的算术就会静默扩散成 NaN。给 0 更老实。"""
+    h = TickerHub()
+    h.meta = {"OLDUSDT": {"symbol": "OLDUSDT", "base": "OLD"}}
+    h.snapshot = {"OLDUSDT": {"symbol": "OLDUSDT", "last": 1.0, "chgPct": 0.0,
+                              "quoteVolume": 0.0, "high": 1.0, "low": 1.0}}
+    assert h.rich_rows()[0]["onboardDate"] == 0

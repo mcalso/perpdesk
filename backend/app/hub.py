@@ -339,8 +339,7 @@ class TickerHub:
             p = self.premium.get(sym) or {}
             last = self._live_price(sym, t["last"])
             rows.append([
-                sym, last, t["chgPct"], t["quoteVolume"], t["high"], t["low"],
-                p.get("fundingRate", 0.0), p.get("markPrice", last),
+                sym, last, t["chgPct"], p.get("markPrice", last),
             ])
         return rows
 
@@ -358,6 +357,7 @@ class TickerHub:
                 "base": meta.get("base", sym.removesuffix("USDT")),
                 "assetClass": meta.get("assetClass", "crypto"),
                 "sector": meta.get("sector", "other"),
+                "onboardDate": meta.get("onboardDate", 0),
                 "fundingRate": p.get("fundingRate", 0.0),
                 "markPrice": p.get("markPrice", last),
                 "nextFundingTime": p.get("nextFundingTime", 0),
