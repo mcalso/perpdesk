@@ -145,7 +145,7 @@ export default function Market() {
   }, [rows, cls, sector])
 
   return (
-    <div className="page col">
+    <div className="page col fill">
       <div className="stats">
         <div className="stat">
           <div className="label">全市场标的</div>
@@ -234,10 +234,22 @@ export default function Market() {
           <TableSkeleton rows={12} cols={7} />
         ) : (
           <div className="table-scroll">
-            <table className="cards">
+            <table className="cards market-table">
+              {/* 列宽写死。交给浏览器自动分配的话，换品类时（商品 8 个 vs
+                  加密 526 个）价格位数、名称长度、板块标签长短都在变，
+                  整排列会跟着左右横跳。标的列不给宽度，吃掉剩余空间。 */}
+              <colgroup>
+                <col style={{ width: 40 }} />
+                <col />
+                <col style={{ width: 118 }} />
+                <col style={{ width: 104 }} />
+                <col style={{ width: 132 }} />
+                <col style={{ width: 106 }} />
+                <col style={{ width: 78 }} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={{ width: 36 }} />
+                  <th />
                   <SortHeader label="标的" sortKey="symbol" current={sortKey} dir={sortDir} onSort={toggle} />
                   <SortHeader label="最新价" sortKey="last" current={sortKey} dir={sortDir} onSort={toggle} right />
                   <SortHeader label="24h 涨跌" sortKey="chgPct" current={sortKey} dir={sortDir} onSort={toggle} right />

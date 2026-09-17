@@ -46,6 +46,11 @@
 
 * { box-sizing: border-box; }
 
+/* 永远给滚动条留出槽位。不留的话，滚动条一出现就把整页内容横向推走约
+   15px —— 在标签页之间切换（商品 8 个不滚 / 加密 526 个要滚）时，
+   整张表会左右抽动一下。留着槽位，有没有滚动条的版面宽度都一样。 */
+html { scrollbar-gutter: stable; }
+
 body {
   margin: 0;
   color: var(--text);
@@ -252,6 +257,22 @@ tbody tr.clickable { cursor: pointer; }
 /* 左侧 accent 竖条用 box-shadow 内投影做，不占布局，不会让整行抖动 */
 tbody tr.clickable:hover { box-shadow: inset 2px 0 0 var(--accent); }
 .table-scroll { max-height: 620px; overflow: auto; }
+
+/* 行情看板整页刚好占满视口，只有表格内部滚动。
+   否则页面总高随行数变化：商品（8 个）不触发浏览器滚动条、加密（526 个）
+   触发，来回切换时滚动条忽有忽无。配合上面的 scrollbar-gutter，
+   现在是「任何品类下浏览器滚动条都不出现」。 */
+.page.fill {
+  height: calc(100vh - 54px);          /* 54px = .topbar 高度 */
+  height: calc(100dvh - 54px);         /* 移动端浏览器地址栏会伸缩，用 dvh */
+  min-height: 520px;                   /* 视口太矮时宁可让页面滚，也不要把表压没 */
+  overflow: hidden;
+}
+.page.fill .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.page.fill .panel-head,
+.page.fill .chips,
+.page.fill .pager { flex-shrink: 0; }
+.page.fill .table-scroll { flex: 1; min-height: 0; max-height: none; }
 .table-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
 .table-scroll::-webkit-scrollbar-track { background: transparent; }
 .table-scroll::-webkit-scrollbar-thumb {
@@ -261,7 +282,14 @@ tbody tr.clickable:hover { box-shadow: inset 2px 0 0 var(--accent); }
 .table-scroll::-webkit-scrollbar-thumb:hover { background: #39415a; }
 
 .sym { font-weight: 600; }
-.sym-cell { display: flex; align-items: center; gap: 8px; }
+.sym-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* 行情表的列宽写死（配合 <colgroup>）。默认的 auto 布局按内容算宽，
+   换品类时价格位数、名称长度、板块标签长短都在变，整排列会跟着横跳。
+   只作用于行情表：其余 .cards 表格列数与内容完全不同，不该被波及。 */
+.market-table { table-layout: fixed; }
+.market-table td.sym { overflow: hidden; }
+.market-table .sym-base { overflow: hidden; text-overflow: ellipsis; }
 .sym-base { color: var(--text); }
 .sym-quote { color: var(--text-faint); font-size: var(--fs-sm); }
 .sym-cell .tag { margin-left: 2px; }
@@ -526,6 +554,9 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
 
   /* 卡片模式下表格不再需要限高滚动 */
   .table-scroll { max-height: none; }
+  /* 窄屏一行变一张卡，高度本来就撑得开，占满视口的布局在这里只会碍事 */
+  .page.fill { height: auto; min-height: 0; overflow: visible; }
+  .page.fill .table-scroll { flex: none; }
 }
 
 /* ---------- 页面切换过渡 ----------
