@@ -92,13 +92,29 @@ WebSocket 单独做鉴权：HTTP 中间件管不到 WS 握手，只靠中间件�
 
 ## 网络暴露
 
-后端默认只监听 `127.0.0.1`。对外访问走 nginx 反代 + Basic Auth。
+后端默认只监听 `127.0.0.1`，对外走 nginx 反代。`PERPDESK_HOST` **不要**设成
+`0.0.0.0` —— 那会绕过 nginx 直接暴露后端，既没有 TLS，也拿不到 `X-Forwarded-Proto`，
+cookie 的 `Secure` 判定会跟着失效。
 
-⚠️ **目前是纯 HTTP，Basic Auth 的密码在网络上是明文传输的。** 在只有你自己、
-且通过可信网络访问的前提下可以接受；一旦要在网页里录入 API key，**必须先上 HTTPS**
-——否则密钥会明文过网线。
+### HTTPS
 
-`PERPDESK_HOST` 不要设成 `0.0.0.0`，那会绕过 nginx 的认证直接暴露后端。
+装好证书之后：
+
+* 会话 cookie 自动带上 `Secure`（依据 nginx 转发的 `X-Forwarded-Proto`）；
+* 网页里才能录入 API 凭据 —— 明文 HTTP 下后端直接返回 **421 拒收**。
+
+这条是**拒绝**而不是提示后放行：密钥明文过网线跟贴在公告板上差不多，
+而提示没人看、泄露不可逆。本机访问（`127.0.0.1`）放行，因为没有中间链路
+可窃听，且首次配置往往就发生在还没证书的时候。自己在前面挡了 TLS、后端拿不到
+`X-Forwarded-Proto` 的，用 `PERPDESK_ALLOW_INSECURE_CREDS=1` 开口子。
+
+签证书见 `deploy/nginx.conf` 末尾的说明。要点：
+
+* **域名必须是可注册域**。`sslip.io` / `nip.io` 这类把 IP 变域名的服务**不在**
+  公共后缀列表里，所有子域名共用同一个 Let's Encrypt 限额（每周 50 张），
+  实际上签不出来。`duckdns.org` 在列表里，可以用；自己买一个更省事。
+* certbot 生成的 80 端口块默认 `return 404`，要改成重定向，否则用 IP 或别的
+  Host 访问会直接 404。
 
 ## 没有多用户
 

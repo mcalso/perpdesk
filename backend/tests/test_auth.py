@@ -291,3 +291,27 @@ def test_websocket_requires_login(env):
             with c.websocket_connect("/api/market/ws"):
                 pass
     assert err.value.code == 1008, "未登录的 WS 应当以 policy violation 关闭"
+
+
+def test_cookie_gets_secure_flag_behind_https(api):
+    """上了 HTTPS 之后 cookie 必须带 Secure，否则会被降级到 http 的请求带出去。
+
+    判定依据是 nginx 转发的 X-Forwarded-Proto。信这个头是安全的：后端只监听
+    127.0.0.1，除 nginx 外没人能直接连上来伪造它。
+    """
+    client, auth = api
+    r = client.post("/api/auth/login", json={"password": PW},
+                    headers={"X-Forwarded-Proto": "https"})
+    raw = r.headers["set-cookie"].lower()
+    assert "secure" in raw
+    assert "httponly" in raw and "samesite=lax" in raw
+
+
+def test_cookie_secure_can_be_forced_off(api, monkeypatch):
+    """自己在前面挡了 TLS、后端拿不到 X-Forwarded-Proto 时的出口。"""
+    from backend.app import config
+    monkeypatch.setattr(config, "COOKIE_SECURE", "false")
+    client, _ = api
+    r = client.post("/api/auth/login", json={"password": PW},
+                    headers={"X-Forwarded-Proto": "https"})
+    assert "secure" not in r.headers["set-cookie"].lower()

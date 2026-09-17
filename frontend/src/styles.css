@@ -661,3 +661,24 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
   .flash { flex-direction: column; gap: 4px; }
   .flash-time { width: auto; }
 }
+
+/* ---------- 设置页 ---------- */
+.acct-card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 13px 14px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.acct-card-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.acct-card-head input { width: 190px; font-weight: 600; }
+.acct-creds {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-dim);
+}
+.settings-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  color: var(--text-dim); font-size: 14px;
+}
+.settings-link:hover { background: var(--panel-2); color: var(--text); }
+.settings-link.active { background: var(--panel-3); color: var(--accent-lit); }

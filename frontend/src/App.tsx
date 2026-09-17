@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { AccountSwitcher } from './components/AccountSwitcher'
 import { Login } from './components/Login'
-import { SessionMenu } from './components/SessionMenu'
 import { authState, useAuthState } from './lib/auth'
 import { api, type HubStatus } from './lib/api'
 
@@ -79,7 +78,8 @@ export default function App() {
         </nav>
         <AccountSwitcher />
         <StatusChip />
-        <SessionMenu />
+        <NavLink to="/settings" viewTransition className="ghost sm settings-link"
+                 title="设置">⚙</NavLink>
       </header>
       <Outlet />
     </div>
