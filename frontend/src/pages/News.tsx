@@ -86,7 +86,7 @@ export default function News() {
       <div className="panel">
         <div className="panel-head">
           资讯快讯
-          <span className="muted" style={{ fontWeight: 400 }}>
+          <span className="panel-sub">
             {status ? `${status.sources.join('、')} · 共 ${status.total} 条` : ''}
             {status?.ageSec != null && ` · ${status.ageSec.toFixed(0)}s 前更新`}
             {status?.error && ` · ⚠ ${status.error}`}
@@ -104,7 +104,7 @@ export default function News() {
           </button>
         </div>
 
-        {err && <div className="msg err" style={{ margin: 12 }}>{err}</div>}
+        {err && <div className="msg err">{err}</div>}
 
         {!loaded ? (
           <TableSkeleton rows={10} cols={3} />

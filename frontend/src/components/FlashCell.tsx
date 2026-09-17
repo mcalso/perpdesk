@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 
 interface Props {
   /** 用来判断涨跌方向的数值；null/undefined 时不闪 */
@@ -7,6 +7,8 @@ interface Props {
   title?: string
   /** 窄屏卡片视图下显示在数值左侧的字段名，见 styles.css 的 .cards */
   label?: string
+  /** 背景数据条的宽度（配合 .bar-cell 使用），如 "42%" */
+  bar?: string
   children: ReactNode
 }
 
@@ -17,7 +19,7 @@ interface Props {
  * 每行两个闪烁格，用 state 会在每次报价跳动时多触发 200 次渲染。
  * 这里只改 className，React 完全不参与。
  */
-export function FlashCell({ value, className = '', title, label, children }: Props) {
+export function FlashCell({ value, className = '', title, label, bar, children }: Props) {
   const ref = useRef<HTMLTableCellElement>(null)
   const prev = useRef(value)
 
@@ -35,7 +37,8 @@ export function FlashCell({ value, className = '', title, label, children }: Pro
   }, [value])
 
   return (
-    <td ref={ref} className={className} title={title} data-label={label}>
+    <td ref={ref} className={className} title={title} data-label={label}
+        style={bar ? ({ '--bar': bar } as CSSProperties) : undefined}>
       {children}
     </td>
   )
