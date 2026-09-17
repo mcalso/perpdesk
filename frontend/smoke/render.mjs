@@ -245,6 +245,15 @@ testCase('行情看板', async () => {
         bars.slice(0, 2).map((b) => b.getAttribute('style')).join(' | '))
   check('未出现遗留的内联 fontWeight', !html.includes('font-weight: 400'))
 
+  // 列宽写死在 <colgroup> 里，和表头是两处独立声明 —— 将来加一列只改了
+  // thead 的话，整张表的列宽会从那一列起全部错位，且不报任何错
+  const cols = doc.querySelectorAll('.market-table colgroup col').length
+  const ths = doc.querySelectorAll('.market-table thead th').length
+  check('colgroup 列数与表头一致', cols === ths && cols === 7, `col=${cols} th=${ths}`)
+  check('标的列不写死宽度（吃剩余空间）',
+        !doc.querySelectorAll('.market-table colgroup col')[1].getAttribute('style'))
+  check('行情页用占满视口的布局', !!doc.querySelector('.page.fill'))
+
   // ---- 二级板块筛选 ----
   const chips = () => [...doc.querySelectorAll('.chips button')].map((b) => b.textContent)
   const tab = (name) => [...doc.querySelectorAll('.seg button')].find(
