@@ -17,6 +17,16 @@ const CLASS_LABEL: Record<string, string> = {
 }
 const classLabel = (v: string) => CLASS_LABEL[v] || v
 
+// 加密的二级板块，来自 exchangeInfo 的 underlyingSubType。
+// 通用词译成中文，专名保持原样 —— DeFi / Layer-1 / PoW / RWA 这些
+// 中文译名反而没人用，翻了更难认。没打细分标签的落到「其他」。
+const SECTOR_LABEL: Record<string, string> = {
+  Infrastructure: '基础设施', Gaming: '游戏', Metaverse: '元宇宙',
+  Payment: '支付', Storage: '存储', Chinese: '中国概念', Index: '指数',
+  other: '其他',
+}
+const sectorLabel = (v: string) => SECTOR_LABEL[v] || v
+
 const PAGE_SIZE = 100
 
 export default function Market() {
@@ -26,6 +36,7 @@ export default function Market() {
   const [watch, setWatch] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [cls, setCls] = useState('all')
+  const [sector, setSector] = useState('all')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -68,8 +79,9 @@ export default function Market() {
     const needle = search.trim().toUpperCase()
     let hit = needle ? out.filter((r) => r.symbol.includes(needle)) : out
     if (cls !== 'all') hit = hit.filter((r) => r.assetClass === cls)
+    if (sector !== 'all') hit = hit.filter((r) => r.sector === sector)
     return hit
-  }, [rows, live, search, cls])
+  }, [rows, live, search, cls, sector])
 
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, 'quoteVolume')
 
@@ -86,7 +98,10 @@ export default function Market() {
   // 分页而不是截断：718 个标的全都要能翻到，同时把每秒重渲染的 DOM 控制在一页内
   const [page, setPage] = useState(0)
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
-  useEffect(() => { setPage(0) }, [search, cls, sortKey, sortDir])
+  useEffect(() => { setPage(0) }, [search, cls, sector, sortKey, sortDir])
+  // 换大类时二级必须归位：上一个大类的板块在新大类下通常不存在，
+  // 留着会得到一张空表，而用户并不知道是哪个筛选条件在起作用
+  useEffect(() => { setSector('all') }, [cls])
   const pageRows = useMemo(
     () => sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
     [sorted, page],
@@ -110,14 +125,24 @@ export default function Market() {
     return [...count.entries()].sort((a, b) => b[1] - a[1])
   }, [rows])
 
-  const stats = useMemo(() => {
+  // 当前大类下的板块分布。「其他」固定排最后，其余按数量降序。
+  const sectors = useMemo(() => {
     const scope = cls === 'all' ? rows : rows.filter((r) => r.assetClass === cls)
+    const count = new Map<string, number>()
+    for (const r of scope) count.set(r.sector, (count.get(r.sector) || 0) + 1)
+    return [...count.entries()].sort(
+      (a, b) => (a[0] === 'other' ? 1 : 0) - (b[0] === 'other' ? 1 : 0) || b[1] - a[1])
+  }, [rows, cls])
+
+  const stats = useMemo(() => {
+    let scope = cls === 'all' ? rows : rows.filter((r) => r.assetClass === cls)
+    if (sector !== 'all') scope = scope.filter((r) => r.sector === sector)
     const up = scope.filter((r) => r.chgPct > 0).length
     const down = scope.filter((r) => r.chgPct < 0).length
     const vol = scope.reduce((s, r) => s + r.quoteVolume, 0)
     const sorted = [...scope].sort((a, b) => b.chgPct - a.chgPct)
     return { n: scope.length, up, down, vol, top: sorted[0], bottom: sorted[sorted.length - 1] }
-  }, [rows, cls])
+  }, [rows, cls, sector])
 
   return (
     <div className="page col">
@@ -125,7 +150,10 @@ export default function Market() {
         <div className="stat">
           <div className="label">全市场标的</div>
           <div className="value">{stats.n}</div>
-          <div className="sub">{cls === 'all' ? 'Binance U 本位永续' : `${classLabel(cls)}类`}</div>
+          <div className="sub">
+            {sector !== 'all' ? sectorLabel(sector)
+              : cls === 'all' ? 'Binance U 本位永续' : `${classLabel(cls)}类`}
+          </div>
         </div>
         <div className="stat">
           <div className="label">涨 / 跌</div>
@@ -186,6 +214,21 @@ export default function Market() {
             style={{ width: 180 }}
           />
         </div>
+        {/* 二级只在选定某个大类后出现。在「全部」下展开的话，155 个美股和
+            26 个没打板块标签的加密会被并进同一个「其他」，既和上面的
+            「美股 155」重复，计数也不再是对当前视图的精确划分。 */}
+        {cls !== 'all' && sectors.length > 1 && (
+          <div className="chips">
+            <button className={sector === 'all' ? 'on' : ''} onClick={() => setSector('all')}>
+              全部<span className="count">{sectors.reduce((n, [, v]) => n + v, 0)}</span>
+            </button>
+            {sectors.map(([v, n]) => (
+              <button key={v} className={sector === v ? 'on' : ''} onClick={() => setSector(v)}>
+                {sectorLabel(v)}<span className="count">{n}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {err && <div className="msg err">{err}</div>}
         {loading ? (
           <TableSkeleton rows={12} cols={7} />
@@ -221,9 +264,10 @@ export default function Market() {
                         <SymbolIcon symbol={r.symbol} />
                         <span className="sym-base">{r.base}</span>
                         <span className="sym-quote">/USDT</span>
-                        {r.assetClass !== 'crypto' && (
-                          <span className="tag">{classLabel(r.assetClass)}</span>
-                        )}
+                        {r.assetClass === 'crypto'
+                          ? r.sector !== 'other' && (
+                            <span className="tag">{sectorLabel(r.sector)}</span>)
+                          : <span className="tag">{classLabel(r.assetClass)}</span>}
                       </div>
                     </td>
                     <FlashCell value={r.last} className="right mono" label="最新价">

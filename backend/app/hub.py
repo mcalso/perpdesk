@@ -357,6 +357,7 @@ class TickerHub:
                 "restLast": t["last"],
                 "base": meta.get("base", sym.removesuffix("USDT")),
                 "assetClass": meta.get("assetClass", "crypto"),
+                "sector": meta.get("sector", "other"),
                 "fundingRate": p.get("fundingRate", 0.0),
                 "markPrice": p.get("markPrice", last),
                 "nextFundingTime": p.get("nextFundingTime", 0),

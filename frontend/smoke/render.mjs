@@ -214,36 +214,78 @@ testCase('图表组', async () => {
 })
 
 testCase('行情看板', async () => {
+  const T = (symbol, base, assetClass, sector, chgPct, quoteVolume, live) => ({
+    symbol, base, assetClass, sector, last: 100, open: 0, high: 0, low: 0,
+    chgPct, quoteVolume, volume: 0, trades: 0, fundingRate: 0.0001,
+    markPrice: 100, bid: null, ask: null, live, ts: 0,
+  })
   const tickers = [
-    { symbol: 'BTCUSDT', base: 'BTC', assetClass: 'crypto', last: 121000, open: 0, high: 0,
-      low: 0, chgPct: 3.2, quoteVolume: 9.8e9, volume: 0, trades: 0, fundingRate: 0.0001,
-      markPrice: 121000, bid: null, ask: null, live: true, ts: 0 },
-    { symbol: 'ETHUSDT', base: 'ETH', assetClass: 'crypto', last: 4200, open: 0, high: 0,
-      low: 0, chgPct: -1.4, quoteVolume: 3.1e9, volume: 0, trades: 0, fundingRate: -0.0002,
-      markPrice: 4200, bid: null, ask: null, live: true, ts: 0 },
-    { symbol: 'NVDAUSDT', base: 'NVDA', assetClass: 'us_equity', last: 180, open: 0, high: 0,
-      low: 0, chgPct: 0.6, quoteVolume: 2.2e7, volume: 0, trades: 0, fundingRate: 0,
-      markPrice: 180, bid: null, ask: null, live: false, ts: 0 },
+    T('BTCUSDT', 'BTC', 'crypto', 'PoW', 3.2, 9.8e9, true),
+    T('ETHUSDT', 'ETH', 'crypto', 'Layer-1', -1.4, 3.1e9, true),
+    T('SOLUSDT', 'SOL', 'crypto', 'Layer-1', 2.0, 1.5e9, true),
+    T('NVDAUSDT', 'NVDA', 'us_equity', 'other', 0.6, 2.2e7, false),
   ]
-  const { doc, html } = await mount({
+  const { dom, doc, html } = await mount({
     tag: 'market', hash: '#/market',
     routes: {
       '/auth/me': AUTHED,
-      '/market/tickers': { rows: tickers, total: 3, status: {} },
+      '/market/tickers': { rows: tickers, total: 4, status: {} },
       '/api/watchlist': { rows: [] },
     },
-    until: (d) => d.querySelectorAll('tbody tr').length === 3,
+    until: (d) => d.querySelectorAll('tbody tr').length === 4,
   })
-  check('表格渲染出所有标的', doc.querySelectorAll('tbody tr').length === 3)
+  check('表格渲染出所有标的', doc.querySelectorAll('tbody tr').length === 4)
   check('涨跌比例条已画', doc.querySelectorAll('.ratio .up-part').length === 1)
   check('领涨/领跌可点击', doc.querySelectorAll('.lead').length === 2,
         `${doc.querySelectorAll('.lead').length} 个`)
   const bars = [...doc.querySelectorAll('.bar-cell')]
-  check('数据条已套用', bars.length === 6, `${bars.length} 格`)
+  check('数据条已套用', bars.length === 8, `${bars.length} 格`)
   check('数据条按量级缩放',
         bars.some((b) => /--bar:\s*100%/.test(b.getAttribute('style') || '')),
         bars.slice(0, 2).map((b) => b.getAttribute('style')).join(' | '))
   check('未出现遗留的内联 fontWeight', !html.includes('font-weight: 400'))
+
+  // ---- 二级板块筛选 ----
+  const chips = () => [...doc.querySelectorAll('.chips button')].map((b) => b.textContent)
+  const tab = (name) => [...doc.querySelectorAll('.seg button')].find(
+    (b) => b.textContent.startsWith(name))
+  const clickAndWait = async (el, ready) => {
+    el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    for (let i = 0; i < 60 && !ready(); i++) await new Promise((r) => setTimeout(r, 40))
+  }
+
+  // 「全部」下不该出现二级：那会把 155 个美股并进「其他」，
+  // 既和上面的「美股 155」重复，计数也不再是对当前视图的划分
+  check('「全部」下不显示二级', doc.querySelectorAll('.chips button').length === 0,
+        JSON.stringify(chips()))
+
+  await clickAndWait(tab('加密'), () => doc.querySelectorAll('.chips button').length > 0)
+  check('选定大类后二级才出现', doc.querySelectorAll('.chips button').length === 3,
+        JSON.stringify(chips()))
+  check('板块带计数且按数量降序',
+        /^全部3$/.test(chips()[0]) && /^Layer-12$/.test(chips()[1])
+          && /^PoW1$/.test(chips()[2]),
+        JSON.stringify(chips()))
+  check('行内打了板块标签',
+        [...doc.querySelectorAll('.sym-cell .tag')].map((e) => e.textContent).includes('Layer-1'),
+        JSON.stringify([...doc.querySelectorAll('.sym-cell .tag')].map((e) => e.textContent)))
+
+  const layer1 = [...doc.querySelectorAll('.chips button')].find(
+    (b) => b.textContent.startsWith('Layer-1'))
+  layer1.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  for (let i = 0; i < 60 && doc.querySelectorAll('tbody tr').length !== 2; i++) {
+    await new Promise((r) => setTimeout(r, 40))
+  }
+  const shown = [...doc.querySelectorAll('tbody .sym-base')].map((e) => e.textContent)
+  check('点板块后只剩该板块的标的', shown.length === 2 && shown.includes('ETH')
+        && shown.includes('SOL'), JSON.stringify(shown))
+
+  // 换大类时二级必须归位，否则会得到一张空表而用户不知道是谁在过滤
+  await clickAndWait(tab('美股'), () => doc.querySelectorAll('tbody tr').length === 1)
+  check('换大类后二级筛选已归位',
+        doc.querySelectorAll('tbody tr').length === 1
+          && doc.querySelectorAll('tbody .sym-base')[0]?.textContent === 'NVDA',
+        `${doc.querySelectorAll('tbody tr').length} 行`)
 })
 
 testCase('资讯页', async () => {

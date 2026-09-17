@@ -54,7 +54,9 @@ async def tickers(
     rows = rows[:limit]
     if slim:
         # 看板只用得上这几个字段；全量字段 718 行约 240KB，瘦身后不到三分之一
-        keep = ("symbol", "base", "assetClass", "last", "chgPct",
+        # sector 只走这条 REST（30s 一刷），刻意不进 WS 帧：
+        # 板块是静态属性，每秒重复推它纯属浪费刚省下来的带宽
+        keep = ("symbol", "base", "assetClass", "sector", "last", "chgPct",
                 "quoteVolume", "fundingRate", "markPrice", "live")
         rows = [{k: r[k] for k in keep if k in r} for r in rows]
     return {"rows": rows, "total": total, "status": hub.status()}
