@@ -9,7 +9,7 @@ import { TableSkeleton } from './TableSkeleton'
 import { useSort } from '../lib/useSort'
 import { useActiveAccount } from '../lib/account'
 import { api, type AccountOverview, type AccountStatus } from '../lib/api'
-import { fmtPct, fmtPrice, fmtQty, fmtUsd, trendClass } from '../lib/format'
+import { fmtCny, fmtPct, fmtPrice, fmtQty, fmtUsd, trendClass } from '../lib/format'
 
 const PIE_COLORS = ['#2962ff', '#26a69a', '#ff9800', '#ab47bc', '#ef5350',
                     '#26c6da', '#9ccc65', '#ffa726', '#5c6bc0', '#8d6e63']
@@ -114,6 +114,15 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
           <div className="value">
             <AnimatedNumber value={data?.equity} format={fmtUsd} />
           </div>
+          {/* 人民币是参考值，取不到汇率就整行不显示 —— 宁可没有，
+              也别在权益旁边摆一个来路不明的数字 */}
+          {data?.fx && data.equity != null && (
+            <div className="approx"
+                 title={`按 USDT/CNY ${data.fx.cny} 折算（币安 C2C 买卖两侧中位价的中点，`
+                        + `${Math.round(data.fx.ageSec)}s 前更新）。仅供参考，非成交价。`}>
+              ≈ {fmtCny(data.equity * data.fx.cny)}
+            </div>
+          )}
           <div className="sub">钱包 {fmtUsd(usdt?.balance)} · 可用 {fmtUsd(usdt?.available)}</div>
         </div>
         <div className="stat">

@@ -54,6 +54,13 @@ export interface ExchangePosition {
   live: boolean
 }
 
+/** USDT→CNY 参考汇率。取不到或过期时后端给 null，前端据此不显示人民币 */
+export interface FxRate {
+  cny: number
+  ageSec: number
+  source: string
+}
+
 export interface AccountOverview {
   balances: ExchangeBalance[]
   positions: ExchangePosition[]
@@ -64,6 +71,7 @@ export interface AccountOverview {
   ageSec: number | null
   error: string
   pollInterval: number
+  fx: FxRate | null
 }
 
 export interface Flash {

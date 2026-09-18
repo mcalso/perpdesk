@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import account as account_api
 from . import auth as auth_mod
-from . import binance, config, db, icons, vault
+from . import binance, config, db, fx, icons, vault
 from .hub import hub
 from .news.poller import poller as news_poller
 from .routers import account, auth, market, news, portfolio, watchlist
@@ -59,6 +59,8 @@ async def lifespan(app: FastAPI):
     news_poller.symbol_provider = lambda: {
         m["base"]: sym for sym, m in hub.meta.items() if m.get("base")}
     await news_poller.start()
+    # 汇率只是权益旁边的一个参考数字，起得晚、挂了也不影响任何主流程
+    await fx.start()
     # 按成交额从高到低预热，热门标的先有图
     prewarm_task = asyncio.create_task(
         icons.prewarm(lambda: [r["symbol"] for r in
@@ -69,6 +71,7 @@ async def lifespan(app: FastAPI):
     yield
     prewarm_task.cancel()
     await news_poller.stop()
+    await fx.stop()
     await account_api.registry.stop_all()
     await hub.stop()
     await binance.close()
