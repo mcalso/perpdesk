@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 
-from .. import account, config, db, vault
+from .. import account, config, db, fx, vault
 from ..hub import hub
 
 router = APIRouter(prefix="/api/account", tags=["account"])
@@ -201,6 +201,9 @@ async def overview(account_id: int | None = AccountQ) -> dict:
     snap = account.registry.get(acct).snapshot(hub.mark_prices())
     if snap["ageSec"] is None and snap["error"]:
         raise HTTPException(502, snap["error"])
+    # 汇率搭这趟车，不另开一个请求 —— 这个端点前端本来就 2 秒轮询一次。
+    # 读的是后台循环维护的缓存，不会在请求路径上打第三方接口。
+    snap["fx"] = fx.snapshot()
     return snap
 
 

@@ -132,6 +132,7 @@ const OVERVIEW = {
   balances: [{ asset: 'USDT', balance: 1000, available: 800, unrealized: 0 }],
   positions: [], equity: 1000, wallet: 1000, totalUnrealized: 0,
   grossNotional: 0, ageSec: 1, error: '', pollInterval: 6,
+  fx: { cny: 6.66, ageSec: 12, source: 'binance-c2c' },
 }
 const SUMMARY = {
   positions: fixtures.positions, allocation: [],
@@ -176,6 +177,48 @@ testCase('未配置 API 凭据（回归：曾因 hook 顺序白屏）', async ()
         `${html.length} 字节`)
   check('给出"未配置凭据"提示', html.includes('未配置 API 凭据'))
   check('没有 hook 顺序错误', !errors.some((e) => e.includes('fewer hooks')))
+})
+
+// ⚠️ 一个 testCase 里只能 mount 一次：harness 是按 case 分子进程的，
+// 同进程内第二次 mount 会复用已缓存的惰性 chunk，组件被渲染进第一个 dom，
+// 第二个 dom 永远空着 —— until 只会静静超时，断言随后给出误导性的结果。
+// 所以「有汇率」和「没汇率」拆成两个 case。
+const fxRoutes = (fx) => ({
+  '/auth/me': AUTHED,
+  '/account/status': { configured: true, hasKey: true, hasSecret: true, hint: '' },
+  '/account/overview': { ...OVERVIEW, fx },
+  '/portfolio/summary': SUMMARY,
+  '/portfolio/curve': { points: fixtures.curve, from: T0, to: T0 + 20 * DAY, total: 40, final: 100 },
+  '/portfolio/daily': { rows: fixtures.daily, winDays: 13, lossDays: 7 },
+})
+
+testCase('账户权益的人民币折算', async () => {
+  const { doc } = await mount({
+    tag: 'fx', hash: '#/portfolio',
+    routes: fxRoutes({ cny: 6.66, ageSec: 12, source: 'binance-c2c' }),
+    until: (d) => !!d.querySelector('.approx'),
+  })
+  const approx = doc.querySelector('.approx')
+  // 权益 1000 × 6.66 = 6660，且不带小数 —— 那是按场外中位价折的近似值
+  check('显示人民币近似值', approx?.textContent.trim() === '≈ ¥6,660',
+        JSON.stringify(approx?.textContent))
+  check('标注了汇率与来源，不让人对着一个数字猜',
+        /6\.66/.test(approx?.getAttribute('title') || '')
+          && /C2C/.test(approx?.getAttribute('title') || ''),
+        approx?.getAttribute('title'))
+})
+
+testCase('汇率取不到时降级', async () => {
+  const { doc, html } = await mount({
+    tag: 'fxnull', hash: '#/portfolio',
+    routes: fxRoutes(null),
+    // 等权益卡本身，不能等 .stat —— 持仓页别处也有 .stat，会提前放行
+    until: (d) => !!d.querySelector('.stat.hero'),
+  })
+  // 宁可没有，也别在权益旁边摆一个来路不明的数字
+  check('拿不到汇率时不显示人民币', !doc.querySelector('.approx'))
+  check('汇率缺失不影响权益本身', html.includes('账户权益'),
+        `root ${html.length} 字节`)
 })
 
 testCase('图表组', async () => {

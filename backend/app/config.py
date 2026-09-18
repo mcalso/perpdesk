@@ -91,6 +91,15 @@ NEWS_KEEP_DAYS = int(os.getenv("PERPDESK_NEWS_KEEP_DAYS", "30"))
 # 金十每条中英文各发一遍，默认只留中文，否则列表里每条都重复。cn / en / all
 NEWS_LANG = os.getenv("PERPDESK_NEWS_LANG", "cn")
 
+# ---------------- 汇率 ----------------
+# 账户权益旁边那个「≈¥」用的 USDT→CNY 参考价。置空即完全关闭。
+# 刻意不用美元官方牌价：账户以 USDT 计价，而国内 USDT 场外价与 USD/CNY
+# 中间价长期有价差，用牌价换算出来的数字回答不了「换成人民币大概多少」。
+# ⚠️ 与资讯源一样，走的是币安网页前端的非公开接口，随时可能失效。
+FX_SOURCE = os.getenv("PERPDESK_FX_SOURCE", "binance_p2p")
+# 汇率变得慢，5 分钟一刷绰绰有余，也别给第三方接口添麻烦
+FX_REFRESH_INTERVAL = float(os.getenv("PERPDESK_FX_INTERVAL", "300"))
+
 DEFAULT_WATCHLIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]
 
 

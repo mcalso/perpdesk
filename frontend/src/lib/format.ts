@@ -35,6 +35,16 @@ export const fmtUsd = (v: number | null | undefined, digits = 2): string => {
   })}`
 }
 
+/**
+ * 人民币估值。刻意不带小数：这是按场外中位价折出来的近似值，
+ * 写到分位会假装出它没有的精度。
+ */
+export const fmtCny = (v: number | null | undefined): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—'
+  const sign = v < 0 ? '-' : ''
+  return `${sign}¥${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+}
+
 export const fmtCompact = (v: number | null | undefined): string => {
   if (v === null || v === undefined || Number.isNaN(v)) return '—'
   const a = Math.abs(v)

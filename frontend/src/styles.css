@@ -313,6 +313,15 @@ tbody tr.clickable:hover { box-shadow: inset 2px 0 0 var(--accent); }
   background: var(--panel-3); color: var(--text-dim);
   border: 1px solid transparent;
 }
+/* 主数值下面的近似折算（如权益的人民币估值）。
+   比主数值小、比 .sub 大：它是同一个数的另一种说法，不是附注。 */
+.approx {
+  margin-top: 3px;
+  font-size: var(--fs-lg); color: var(--text-dim);
+  font-variant-numeric: tabular-nums; letter-spacing: .2px;
+  cursor: help;
+}
+
 /* 新上架角标。阈值 14 天，实测全市场约 5 个 —— 再宽就成了满屏噪声 */
 .tag.new {
   background: rgba(41, 98, 255, .16); color: var(--accent-lit);
