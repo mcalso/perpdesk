@@ -73,7 +73,14 @@ async def refresh() -> float | None:
     global _rate, _at
     buy, sell = await asyncio.gather(_side("BUY"), _side("SELL"),
                                      return_exceptions=True)
-    got = [x for x in (buy, sell) if isinstance(x, float)]
+    got = []
+    for name, v in (("买侧", buy), ("卖侧", sell)):
+        if isinstance(v, float):
+            got.append(v)
+        else:
+            # gather 会把异常吞成返回值。不记下来的话，长期只有一侧能用
+            # 也看不出来 —— 汇率照常显示，只是悄悄偏向了另一侧。
+            log.warning("%s取价失败: %s", name, v if v is not None else "无有效报价")
     if not got:
         raise RuntimeError("买卖两侧都没取到价")
     _rate = round(sum(got) / len(got), 4)
