@@ -139,6 +139,8 @@ async def ws_tickers(ws: WebSocket) -> None:
         服务端 → {"type": "tickers", "rows": [[...], ...]}      只含变化的行
 
     rows 是增量：值没变的标的不会出现在帧里，客户端把它并进自己的 Map 即可。
+    增量一旦丢失就是永久丢失，所以服务端不丢帧 —— 客户端慢的时候变化
+    攒在 pending 里按 symbol 覆盖，等它能收了一次性给最新值。
 
     帧里不带 status：前端没有任何地方消费它，而它每秒都在变，反倒会
     抵消跨帧压缩字典的效果 —— 增量帧本身往往只有几百字节，塞一份
@@ -154,8 +156,15 @@ async def ws_tickers(ws: WebSocket) -> None:
     sub = hub.subscribe()
 
     async def pump() -> None:
+        # 先 clear 再 drain，顺序不能反：反过来的话，两步之间广播循环若又
+        # 攒了新行，wake 会被刚清掉而 pending 非空，那批行就得等下一次变化
+        # 才有机会发出去。
         while True:
-            await ws.send_text(await sub.queue.get())
+            await sub.wake.wait()
+            sub.wake.clear()
+            payload = hub.drain(sub)
+            if payload is not None:
+                await ws.send_text(payload)
 
     async def listen() -> None:
         while True:
@@ -167,6 +176,9 @@ async def ws_tickers(ws: WebSocket) -> None:
             if isinstance(msg, dict) and msg.get("type") == "viewport":
                 syms = msg.get("symbols")
                 hub.set_viewport(sub, syms if isinstance(syms, list) else [])
+                # 立刻铺一次底，不必干等到下一个广播 tick（最多 1 秒）
+                if hub.stage(sub):
+                    sub.wake.set()
 
     tasks: list[asyncio.Task] = []
     try:

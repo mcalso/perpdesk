@@ -41,14 +41,25 @@ class Subscriber:
 
     sent 缓存每个标的上一次发出去的那一行，值没变就不再发。行情里绝大多数
     标的在相邻两秒是完全不动的，这一步几乎白送。
+
+    pending 是攒着还没送出去的变化，按 symbol 覆盖写入。为什么需要它：
+    增量帧一旦丢失就是永久丢失。早先的实现是每个 tick 把序列化好的帧塞进
+    一个 maxsize=2 的队列，满了丢最旧的一帧 —— 可那一帧里的行**已经**记进
+    sent 了，于是再也不会补发，客户端上那一行就永久停在旧值。推全量快照
+    时丢帧无害（下一帧什么都有），改成增量之后这个前提就没了。
+
+    现在的模型：变化只进 pending，发送成功才清空。客户端慢时同一标的的
+    多次变化被覆盖成最新值，既不丢数据，占用也被视口大小封顶。
     """
 
-    __slots__ = ("queue", "symbols", "sent")
+    __slots__ = ("wake", "symbols", "sent", "pending")
 
     def __init__(self) -> None:
-        self.queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        # 只作唤醒信号用，不承载数据 —— 数据在 pending 里
+        self.wake = asyncio.Event()
         self.symbols: list[str] | None = None
         self.sent: dict[str, list] = {}
+        self.pending: dict[str, list] = {}
 
 
 class TickerHub:
@@ -182,6 +193,8 @@ class TickerHub:
         for sym in gone:
             self.snapshot.pop(sym, None)
             self.book.pop(sym, None)
+        # 重算实时订阅：下架的标的若还挂在自选里，会一直占着一个流名额
+        self.set_ws_symbols(self.ws_symbols)
         log.info("已下架，移出快照: %s", ", ".join(sorted(gone)))
 
     # ---------- WS：自选标的实时盘口 ----------
@@ -192,7 +205,14 @@ class TickerHub:
         持仓标的必须包含在内：持仓估值是这个站最需要准确且及时的数字，
         而全市场 REST 轮询只有 5~20 秒粒度。
         """
-        wanted = sorted({s.upper() for s in symbols if s})[: config.WS_MAX_STREAMS]
+        wanted = sorted({s.upper() for s in symbols if s})
+        # 滤掉 exchangeInfo 里已经没有的：自选表里留着一个已下架的标的时，
+        # 继续向币安订阅它只会白占 WS_MAX_STREAMS 的名额（对方也不会推）。
+        # meta 为空说明 exchangeInfo 还没拉到，那时一个都不能滤，否则会
+        # 把所有订阅都清掉。
+        if self.meta:
+            wanted = [s for s in wanted if s in self.meta]
+        wanted = wanted[: config.WS_MAX_STREAMS]
         if wanted != self.ws_symbols:
             self.ws_symbols = wanted
             self._resubscribe.set()
@@ -282,41 +302,43 @@ class TickerHub:
         # 「值和上次发的一样」被增量逻辑跳过，那一行就再也不更新了。
         for stale in sub.sent.keys() - seen:
             sub.sent.pop(stale, None)
+        # pending 同理：已经不在视口里的行没必要再发过去
+        for stale in sub.pending.keys() - seen:
+            sub.pending.pop(stale, None)
 
-    def frame_for(self, sub: Subscriber) -> str | None:
-        """生成这一秒该发给某个订阅者的帧；无事可发时返回 None。
+    def stage(self, sub: Subscriber) -> bool:
+        """把这一刻的变化并入待发集合，返回「有东西要发吗」。
 
-        两种 None：客户端还没上报视口（一行都不该推），以及视口里的行
-        这一秒全都没动（增量为空，一个字节都不必发）。
+        只写 pending，不做序列化也不碰传输层 —— 发不发得出去是 drain()
+        那一侧的事。同一标的重复变化在这里被覆盖成最新值。
         """
         if not sub.symbols:
-            return None
-        rows = []
+            return False                  # 客户端还没上报视口，一行都不推
         for row in self.compact_rows(sub.symbols):
             if sub.sent.get(row[0]) == row:
                 continue                  # 这一秒没动，不必重发
             sub.sent[row[0]] = row
-            rows.append(row)
-        if not rows:
+            sub.pending[row[0]] = row
+        return bool(sub.pending)
+
+    def drain(self, sub: Subscriber) -> str | None:
+        """取走待发的行并序列化成一帧；没有就返回 None。
+
+        ⚠️ 调用方必须真的把返回的帧发出去 —— 这里一取就清空了。
+        发送失败意味着连接已断，订阅者随即被移除，所以不必回滚。
+        """
+        if not sub.pending:
             return None
+        rows = list(sub.pending.values())
+        sub.pending.clear()
         return json.dumps({"type": "tickers", "rows": rows})
 
     async def _broadcast_loop(self) -> None:
         while True:
             await asyncio.sleep(config.BROADCAST_INTERVAL)
             for sub in list(self._subscribers):
-                payload = self.frame_for(sub)
-                if payload is None:
-                    continue
-                if sub.queue.full():      # 慢客户端：丢旧帧只保最新
-                    try:
-                        sub.queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
-                try:
-                    sub.queue.put_nowait(payload)
-                except asyncio.QueueFull:
-                    pass
+                if self.stage(sub):
+                    sub.wake.set()        # 真正的发送在各连接自己的 pump 里
 
     # ---------- 读取视图 ----------
 

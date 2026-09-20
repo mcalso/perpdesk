@@ -88,7 +88,15 @@ code {
 .right { text-align: right; }
 
 /* ---------- 布局 ---------- */
-.app { min-height: 100vh; display: flex; flex-direction: column; position: relative; z-index: 1; }
+/* min-height 必须和 .page.fill 的 height 用同一个单位。混用的话，移动浏览器上
+   100vh > 100dvh，两者一叠就多出几像素，页面又冒出滚动条 —— 正好破坏
+   .page.fill 想达到的「任何品类下都不触发滚动条」。100vh 那行留给不认
+   dvh 的老浏览器兜底。 */
+.app {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex; flex-direction: column; position: relative; z-index: 1;
+}
 
 .topbar {
   display: flex; align-items: center; gap: 20px;
