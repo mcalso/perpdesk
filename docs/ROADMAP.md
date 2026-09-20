@@ -35,6 +35,7 @@
 | — | 持仓页图表组 | 一大四小可切换；`/api/portfolio/daily` 按本地日界分桶 |
 | — | UI 一致性梳理 | 内联样式 54 → 23 处；行情看板数据条 |
 | — | 行情推送按视口 + 增量 | 客户端上报需要哪些标的，只推这些、只推变了的行。实测 204 → 3.1 kbps（1/66）。这是「给行情表加列」的前置条件，详见 [DATA_SOURCES.md](DATA_SOURCES.md) 第 9 节 |
+| — | nginx 开启压缩 | Ubuntu 默认 `gzip on` 但 `gzip_types` 是注释掉的，nginx 只压 text/html —— JSON 和 JS 一直在原样发。实测全站资源 891 → 264 KB，0.5 Mbps 下首屏 14.2s → 4.2s |
 | — | 权益的人民币折算 | USDT→CNY 用币安 C2C 买卖两侧中位价的中点，不用美元官方牌价（账户以 USDT 计价，国内场外价与牌价长期有价差）。取不到/过期就整行不显示 |
 | — | 行情表零成本信息 | 24h 区间条、资金费结算倒计时、新上架 NEW 角标。三份数据本来就在取，只是被 slim 白名单挡着。顺手把 WS 帧从 8 字段削到 4 —— 另外 4 个前端 decode 出来就扔 |
 | — | 部署脚本按哈希跳过依赖 | `npm ci` 会删光 node_modules 重装，小 VPS 上重下 111M 要半小时。另补上了文件头写了但从未实现的 `--build-local` |
@@ -96,6 +97,10 @@ Bybit、或者币安的币本位（同所不同产品线，抽象层次更浅）
   见 `hub._prune_delisted()`。
 - **估算 WebSocket 带宽不能用单帧 gzip** —— `permessage-deflate` 默认开启且跨帧
   保留压缩字典，真实值要用同一个 `compressobj` 连续压多帧才量得准。
+- **别假定发行版替你开好了压缩** —— Ubuntu 的 nginx.conf 里 `gzip on` 是开的，
+  但 `gzip_types` 整行被注释掉，nginx 默认只压 `text/html`。JSON 和 JS 一直在
+  原样发送，而这比任何应用层优化的量级都大。另外 `gzip_proxied` 默认是 `off`，
+  不显式设成 `any` 的话，经 `proxy_pass` 回来的 `/api` 响应一个字节都不会压。
 - **一个冒烟 testCase 里只能 mount 一次** —— harness 按 case 分子进程，同进程内
   第二次 mount 会复用已缓存的惰性 chunk，组件渲染进第一个 dom，第二个永远空着。
   `until` 只会静静超时，断言随后给出误导性的「通过」。
