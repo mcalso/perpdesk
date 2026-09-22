@@ -109,7 +109,7 @@ def match_symbols(text: str, symbols: dict[str, str]) -> list[str]:
     upper = text.upper()
 
     # 1) 完整合约名（BTCUSDT）：最可靠，无歧义
-    for base, sym in symbols.items():
+    for sym in symbols.values():
         if sym.upper() in upper:
             hits.add(sym)
 

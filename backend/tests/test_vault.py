@@ -130,7 +130,8 @@ def test_tampered_ciphertext_is_detected(vlt):
     from backend.app import db
     vlt.put(1, "api_key", SECRET)
     row = db.get_credential(1, "api_key")
-    broken = bytearray(row["ciphertext"]); broken[0] ^= 0xFF
+    broken = bytearray(row["ciphertext"])
+    broken[0] ^= 0xFF
     db.set_credential(1, "api_key", row["nonce"], bytes(broken))
     with pytest.raises(vlt.VaultError):
         vlt.get(1, "api_key")

@@ -19,7 +19,9 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MASTER_KEY_PATH", tmp_path / ".master.key")
     monkeypatch.setattr(config, "MASTER_KEY_ENV", "")
     monkeypatch.setattr(config, "ENV_PATH", tmp_path / "none.env")
-    db.close(); vault.reset_cache(); db.connect()
+    db.close()
+    vault.reset_cache()
+    db.connect()
 
     from backend.app.routers import account as account_router
     from backend.app.routers import portfolio as portfolio_router
@@ -30,7 +32,8 @@ def api(tmp_path, monkeypatch):
     app.include_router(account_router.router)
     with TestClient(app) as client:
         yield client, db
-    db.close(); vault.reset_cache()
+    db.close()
+    vault.reset_cache()
 
 
 def _fill(db, account_id, symbol, buy, sell, fee=0.0):
@@ -99,10 +102,12 @@ def test_replay_cache_does_not_bleed_between_accounts(api):
     _fill(db, b, "ETHUSDT", 100, 80)
 
     for _ in range(3):        # 交替查，逼出串号
-        assert client.get("/api/portfolio/summary",
-                          params={"account_id": a}).json()["summary"]["totalRealized"] == pytest.approx(50.0)
-        assert client.get("/api/portfolio/summary",
-                          params={"account_id": b}).json()["summary"]["totalRealized"] == pytest.approx(-20.0)
+        def realized(acct):
+            return (client.get("/api/portfolio/summary", params={"account_id": acct})
+                    .json()["summary"]["totalRealized"])
+
+        assert realized(a) == pytest.approx(50.0)
+        assert realized(b) == pytest.approx(-20.0)
 
 
 def test_writing_to_one_account_invalidates_only_its_own_cache(api):
@@ -137,9 +142,11 @@ def test_delete_cannot_cross_accounts(api):
     b = db.add_account("binance", "二号")
     tid = db.add_trade("BTCUSDT", "BUY", 1, 100, 0, 1_700_000_000_000, "t", account_id=a)
 
-    assert client.delete(f"/api/portfolio/trades/{tid}", params={"account_id": b}).status_code == 404
+    assert client.delete(f"/api/portfolio/trades/{tid}",
+                         params={"account_id": b}).status_code == 404
     assert client.get("/api/portfolio/trades", params={"account_id": a}).json()["total"] == 1
-    assert client.delete(f"/api/portfolio/trades/{tid}", params={"account_id": a}).status_code == 200
+    assert client.delete(f"/api/portfolio/trades/{tid}",
+                         params={"account_id": a}).status_code == 200
 
 
 def test_manual_trade_lands_in_the_requested_account(api):

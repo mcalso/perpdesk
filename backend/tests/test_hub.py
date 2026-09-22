@@ -4,6 +4,7 @@
 冻结在最后一口价上；推送过量也不会报错，只会把小机器的上行带宽吃光。
 所以用例都盯着可观察的后果写，不盯实现细节。
 """
+import contextlib
 import json
 
 import pytest
@@ -200,10 +201,8 @@ def test_meta_refresh_triggers_prune(hub, monkeypatch):
             if "FOOUSDT" not in hub.snapshot:
                 break
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
     asyncio.run(drive())
     assert "FOOUSDT" not in hub.snapshot

@@ -22,10 +22,14 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MASTER_KEY_ENV", "")
     monkeypatch.setattr(config, "AUTH_PASSWORD", "")
     monkeypatch.setattr(config, "COOKIE_SECURE", "auto")
-    db.close(); vault.reset_cache(); db.connect()
+    db.close()
+    vault.reset_cache()
+    db.connect()
     auth.clear_failures()
     yield auth, db
-    db.close(); vault.reset_cache(); auth.clear_failures()
+    db.close()
+    vault.reset_cache()
+    auth.clear_failures()
 
 
 # ---------------------------------------------------------------- 口令
@@ -176,11 +180,12 @@ def test_throttle_window_slides(env, monkeypatch):
 def api(env):
     auth, db = env
     auth.set_password(PW)
-    from backend.app.routers import auth as auth_router
-    from backend.app.routers import portfolio as portfolio_router
-    from backend.app import auth as auth_mod
     from fastapi import Request
     from fastapi.responses import JSONResponse
+
+    from backend.app import auth as auth_mod
+    from backend.app.routers import auth as auth_router
+    from backend.app.routers import portfolio as portfolio_router
 
     app = FastAPI()
 
@@ -190,9 +195,9 @@ def api(env):
     @app.middleware("http")
     async def require_login(request: Request, call_next):
         p = request.url.path
-        if p.startswith("/api/") and p not in PUBLIC:
-            if not auth_mod.validate(request.cookies.get(auth_mod.COOKIE_NAME)):
-                return JSONResponse({"detail": "未登录"}, status_code=401)
+        if (p.startswith("/api/") and p not in PUBLIC
+                and not auth_mod.validate(request.cookies.get(auth_mod.COOKIE_NAME))):
+            return JSONResponse({"detail": "未登录"}, status_code=401)
         return await call_next(request)
 
     app.include_router(auth_router.router)
@@ -281,15 +286,17 @@ def test_websocket_requires_login(env):
     """
     auth, _ = env
     auth.set_password(PW)
-    from backend.app.routers import market
     from starlette.websockets import WebSocketDisconnect
+
+    from backend.app.routers import market
 
     app = FastAPI()
     app.include_router(market.router)
-    with TestClient(app) as c:
-        with pytest.raises(WebSocketDisconnect) as err:
-            with c.websocket_connect("/api/market/ws"):
-                pass
+    # 故意不把三个 with 合成一句：合并后读者要自己数到第三项才知道「哪一句
+    # 应该抛异常」，而这正是本用例的重点。
+    with TestClient(app) as c, pytest.raises(WebSocketDisconnect) as err:  # noqa: SIM117
+        with c.websocket_connect("/api/market/ws"):
+            pass
     assert err.value.code == 1008, "未登录的 WS 应当以 policy violation 关闭"
 
 

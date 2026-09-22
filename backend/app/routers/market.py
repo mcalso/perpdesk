@@ -5,8 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from .. import binance, icons
-from .. import auth
+from .. import auth, binance, icons
 from ..hub import hub
 
 router = APIRouter(prefix="/api/market", tags=["market"])

@@ -1,0 +1,43 @@
+# 工具配置集中在这里。风格靠工具强制，不靠人记 ——
+# 这个项目此前只有 pytest.ini，其余全凭自觉，而自觉是会失效的。
+
+[tool.ruff]
+# Google Python 规范写的是 80 列。这里定 100，理由是量出来的：
+# 全部 4753 行里，按**显示宽度**（CJK 按 2 列算）超过 100 列的只有 1 行，
+# p99 是 87 列。改成 80 会产生上百处纯换行的改动，读起来反而更碎。
+line-length = 100
+target-version = "py313"
+extend-exclude = [".venv", "dist", "node_modules"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes：未用导入、未定义名字这类真错误
+    "E",    # pycodestyle error
+    "W",    # pycodestyle warning
+    "I",    # 导入分组与排序
+    "N",    # PEP 8 命名
+    "B",    # flake8-bugbear：容易写错的惯用法
+    "C4",   # 推导式写法
+    "SIM",  # 可简化的写法
+    "UP",   # 过时写法
+]
+ignore = [
+    # ⚠️ 本项目的 docstring 是中文，结尾是「。」而不是「.」。
+    # 这两条规则只认 ASCII 句点，对中文代码库是系统性误报 ——
+    # 实测开着会凭空产生 294 条噪音，把真问题淹掉。
+    "D400", "D415",
+    # 断言消息里用 f-string 拼上下文更好读，即使当下没有占位符
+    "RET504",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试里为了可读性会用 SAMPLE、OVERVIEW 这类大写局部常量
+"backend/tests/*" = ["N806"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"

@@ -284,7 +284,8 @@ def test_m003_income_primary_key_is_per_account(db):
     conn.execute("INSERT INTO accounts (id, exchange, market, label, created_at) "
                  "VALUES (2, 'binance', 'usdm', '二号', 0)")
 
-    conn.execute("INSERT INTO income VALUES (2, 't1', 'ETHUSDT', 'FUNDING_FEE', -9.9, 'USDT', 2000)")
+    conn.execute("INSERT INTO income VALUES "
+                 "(2, 't1', 'ETHUSDT', 'FUNDING_FEE', -9.9, 'USDT', 2000)")
     conn.commit()
 
     assert conn.execute("SELECT COUNT(*) FROM income WHERE tran_id='t1'").fetchone()[0] == 2
@@ -339,7 +340,7 @@ def test_m003_is_safe_to_rerun(db):
     migrations.run(conn, path)
     rows_before = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
 
-    conn.execute(f"PRAGMA user_version = 2")   # 假装 _m003 还没跑
+    conn.execute("PRAGMA user_version = 2")   # 假装 _m003 还没跑
     migrations.run(conn, path)
 
     assert conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == rows_before

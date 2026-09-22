@@ -15,6 +15,7 @@
 标的，只有这些标的、且只有值变了的行才会被推出去。详见 Subscriber。
 """
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -109,10 +110,8 @@ class TickerHub:
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await t
-            except asyncio.CancelledError:
-                pass
         self._tasks.clear()
 
     # ---------- REST 轮询：全市场行情（权威源） ----------
@@ -240,7 +239,7 @@ class TickerHub:
                             break
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             continue          # 冷门标的可能几秒无盘口变化，正常
                         self._handle_book(json.loads(raw))
             except asyncio.CancelledError:
