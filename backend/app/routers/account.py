@@ -329,7 +329,7 @@ async def import_history(
             break
     if not url:
         return {"ok": False, "downloadId": download_id,
-                "note": f"导出仍在生成，稍后用同一个 downloadId 重试即可（不消耗新的配额）"}
+                "note": "导出仍在生成，稍后用同一个 downloadId 重试即可（不消耗新的配额）"}
 
     raw = await account.download_export(url)
     fills = account.parse_trade_export(raw)

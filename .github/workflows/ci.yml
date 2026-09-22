@@ -1,0 +1,53 @@
+# 提交与 PR 上的自动检查。
+#
+# 在此之前这个项目没有任何自动化检查，全靠人自觉 —— 而自觉是会失效的：
+# 一个「增量帧丢失导致数据永久不同步」的 bug 就是靠事后人工 review 才发现的。
+# CI 拦不住那种设计层面的问题，但能保证「风格、死代码、hook 顺序、测试」
+# 这几类永远不会退化。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: 安装依赖
+        run: pip install -r backend/requirements-dev.txt
+      - name: ruff
+        run: ruff check .
+      # 测试全部离线：外部接口都在用例里打了桩，CI 不需要访问币安
+      - name: pytest
+        run: pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 跟部署机对齐。dev_03 上是 Node 18，而 ESLint 9 要求 ≥20 ——
+          # 版本错配曾经让本地跑不了 lint，这里钉死避免再猜。
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: eslint
+        run: npm run lint
+      - name: 构建（含 tsc -b）
+        run: npm run build
+      # 冒烟跑的是构建产物，必须排在 build 之后
+      - name: 冒烟
+        run: npm run smoke

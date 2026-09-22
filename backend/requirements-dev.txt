@@ -3,3 +3,5 @@
 -r requirements.txt
 pytest==8.3.4
 pytest-cov==6.0.0
+# 代码检查。配置在仓库根的 pyproject.toml [tool.ruff]
+ruff==0.16.8

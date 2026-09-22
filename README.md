@@ -43,6 +43,24 @@ U 本位合约公开接口，以及你自己的账户（**只读**）。
 > `pkill -f` 会把执行它的那个 shell 自己也匹配上杀掉。用 `scripts/perpdesk.sh`，
 > 它按 PID 文件管理。
 
+## 开发时的检查
+
+提交前跑一遍，CI 上也是这四步（见 `.github/workflows/ci.yml`）：
+
+```bash
+pip install -r backend/requirements-dev.txt
+
+ruff check .                        # 代码检查，配置在 pyproject.toml
+pytest                              # 后端用例，全部离线，不需要网络
+npm run lint --prefix frontend      # ESLint，重点是 react-hooks 那两条规则
+npm run build --prefix frontend && npm run smoke --prefix frontend
+```
+
+冒烟测试跑的是**构建产物**，所以必须排在 `build` 之后。
+
+⚠️ ESLint 9 要求 Node ≥ 20。Node 18 上它能跑但会报一堆 EBADENGINE 警告，
+CI 里钉的是 Node 20。
+
 ## 部署到服务器
 
 ```bash

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -45,10 +46,8 @@ class NewsPoller:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         if self._client:
             await self._client.aclose()
@@ -68,10 +67,9 @@ class NewsPoller:
     async def poll_once(self) -> int:
         """抓一轮，返回新增条数。各源互相独立，一个失败不影响其他。"""
         if self.symbol_provider is not None:
-            try:
+            # 取不到就沿用上一轮的映射，总比丢掉关联标的好
+            with contextlib.suppress(Exception):
                 self.symbols = self.symbol_provider() or self.symbols
-            except Exception:
-                pass          # 取不到就沿用上一轮，总比丢关联好
         rows: list[tuple] = []
         errors: list[str] = []
         for name in config.NEWS_SOURCES:

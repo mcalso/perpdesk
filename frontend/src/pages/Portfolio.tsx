@@ -105,6 +105,9 @@ export default function Portfolio() {
     } catch (e) { setMsg({ kind: 'err', text: (e as Error).message }) }
     finally { setLoaded(true) }
     // acct 进依赖：切账户要重算，否则盈亏还是上一个账户的
+    // acct 没被回调体直接引用，但账户号是在 lib/api.ts 里隐式附加到
+    // 每个请求上的 —— ESLint 看不见这层依赖，这里明确保留。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, tradePage, acct])
 
   useEffect(() => {

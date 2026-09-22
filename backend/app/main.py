@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import account as account_api
 from . import auth as auth_mod
-from . import binance, config, db, fx, icons, vault
+from . import binance, db, fx, icons, vault
 from .hub import hub
 from .news.poller import poller as news_poller
 from .routers import account, auth, market, news, portfolio, watchlist
@@ -101,9 +101,10 @@ PUBLIC_PATHS = frozenset({
 @app.middleware("http")
 async def require_login(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/api/") and path not in PUBLIC_PATHS:
-        if not auth_mod.validate(request.cookies.get(auth_mod.COOKIE_NAME)):
-            return JSONResponse({"detail": "未登录"}, status_code=401)
+    # and 的短路保证 validate 仍然只对受保护路径调用
+    if (path.startswith("/api/") and path not in PUBLIC_PATHS
+            and not auth_mod.validate(request.cookies.get(auth_mod.COOKIE_NAME))):
+        return JSONResponse({"detail": "未登录"}, status_code=401)
     return await call_next(request)
 
 

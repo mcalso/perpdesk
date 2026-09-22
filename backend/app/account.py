@@ -6,10 +6,12 @@
   * secret 缺失时所有接口返回"未配置"，而不是抛错刷屏。
 """
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import logging
 import time
+from datetime import UTC
 from typing import Any
 from urllib.parse import urlencode
 
@@ -22,7 +24,7 @@ log = logging.getLogger("perpdesk.account")
 _client: httpx.AsyncClient | None = None
 
 
-class NotConfigured(RuntimeError):
+class NotConfiguredError(RuntimeError):
     """缺少 API key / secret。"""
 
 
@@ -67,7 +69,7 @@ async def _signed_get(path: str, params: dict | None = None,
                       account_id: int | None = None) -> Any:
     key, secret = credentials(account_id)
     if not key or not secret:
-        raise NotConfigured(
+        raise NotConfiguredError(
             f"账户 {account_id if account_id is not None else '默认'} 没有可用的 API 凭据")
 
     payload = dict(params or {})
@@ -239,7 +241,8 @@ async def income(income_type: str | None = None, start_ms: int | None = None,
             "t": int(r.get("time") or 0),
             # tranId 在同一笔交易的不同科目间可能重复，拼上科目与标的才唯一，
             # 否则 INSERT OR IGNORE 会把同一笔的手续费或盈亏吞掉一条
-            "tranId": f"{r.get('tranId') or r.get('time')}-{r.get('incomeType','')}-{r.get('symbol','')}",
+            "tranId": (f"{r.get('tranId') or r.get('time')}"
+                       f"-{r.get('incomeType', '')}-{r.get('symbol', '')}"),
         }
         for r in rows
     ]
@@ -270,10 +273,8 @@ class AccountCache:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
 
     async def _loop(self) -> None:
@@ -447,7 +448,7 @@ def parse_trade_export(raw: bytes) -> list[dict]:
     import csv
     import io
     import zipfile
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if raw[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
@@ -459,7 +460,7 @@ def parse_trade_export(raw: bytes) -> list[dict]:
     for r in csv.DictReader(io.StringIO(text)):
         try:
             ts = int(datetime.strptime(r["Time(UTC)"], "%Y-%m-%d %H:%M:%S")
-                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                     .replace(tzinfo=UTC).timestamp() * 1000)
             out.append({
                 "symbol": r["Symbol"],
                 "side": "BUY" if r["Side"].upper() == "BUY" else "SELL",

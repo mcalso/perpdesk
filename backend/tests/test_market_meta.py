@@ -10,7 +10,6 @@ import pytest
 from backend.app import binance
 from backend.app.hub import TickerHub
 
-
 # ---------------- 板块 ----------------
 
 @pytest.mark.parametrize("sub_types, expect", [

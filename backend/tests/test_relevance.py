@@ -5,7 +5,7 @@
 """
 import pytest
 
-from backend.app.news import relevance as R
+from backend.app.news import relevance as rel
 
 # 取几个有代表性的：加密、美股、港股、商品、以及与英文常用词重名的
 SYMS = {
@@ -18,7 +18,7 @@ SYMS = {
 
 
 def m(text):
-    return R.match_symbols(text, SYMS)
+    return rel.match_symbols(text, SYMS)
 
 
 # ---------------------------------------------------------------- 应当命中
@@ -105,7 +105,7 @@ def test_chinese_everyday_word_base():
     ("美国宣布对部分商品加征关税", "geo"),
 ])
 def test_categories(text, cat):
-    assert cat in R.categories(text)
+    assert cat in rel.categories(text)
 
 
 def test_mining_accident_is_not_crypto():
@@ -114,22 +114,22 @@ def test_mining_accident_is_not_crypto():
     这条是实测踩到的：苏丹金矿坍塌的快讯被判成了 crypto。
     """
     text = "苏丹一金矿发生坍塌事故，造成至少 60 名矿工遇难"
-    assert "crypto" not in R.categories(text)
+    assert "crypto" not in rel.categories(text)
 
 
 def test_gold_industry_news_maps_to_gold_contract():
     """同一条金矿新闻里提到"黄金生产和出口"，关联 XAU 是合理的。"""
     text = "苏丹矿产资源丰富，黄金生产和出口在非洲国家中名列前茅"
     assert m(text) == ["XAUUSDT"]
-    assert "commodity" in R.categories(text)
+    assert "commodity" in rel.categories(text)
 
 
 def test_unrelated_news_matches_nothing():
     text = "中共中央政治局委员、外交部长王毅在北京同伊朗外长阿拉格齐举行会谈"
     assert m(text) == []
-    assert R.categories(text) == []
+    assert rel.categories(text) == []
 
 
 def test_symbol_not_in_universe_is_ignored():
     """别名表里有但这个交易所没有的标的，不该凭空冒出来。"""
-    assert R.match_symbols("苹果公司发布新品", {"BTC": "BTCUSDT"}) == []
+    assert rel.match_symbols("苹果公司发布新品", {"BTC": "BTCUSDT"}) == []

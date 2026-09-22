@@ -43,6 +43,9 @@ export function ExchangeAccount({ onSynced }: { onSynced?: () => void }) {
     } catch (e) { setErr((e as Error).message) }
     finally { setLoaded(true) }
     // acct 进依赖：切账户要立刻重新拉，否则显示的还是上一个账户的持仓
+    // acct 没被回调体直接引用，但账户号是在 lib/api.ts 里隐式附加到
+    // 每个请求上的 —— ESLint 看不见这层依赖，这里明确保留。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [acct])
 
   useEffect(() => {

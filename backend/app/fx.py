@@ -14,6 +14,7 @@
 「不显示人民币」，绝不能影响账户数据本身。置空 PERPDESK_FX_SOURCE 可关闭。
 """
 import asyncio
+import contextlib
 import logging
 import statistics
 import time
@@ -124,10 +125,8 @@ async def stop() -> None:
     global _task, _client
     if _task is not None:
         _task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await _task
-        except asyncio.CancelledError:
-            pass
         _task = None
     if _client is not None:
         await _client.aclose()

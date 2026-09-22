@@ -10,10 +10,11 @@
 写这些用例的取舍：宁可用手算得出、一眼能验证的小数字，也不要用真实数据
 片段——真实数据看着"像对的"，但没人能一眼说出期望值是多少。
 """
+from datetime import UTC
+
 import pytest
 
 from backend.app import pnl
-
 
 _seq = 0
 
@@ -331,9 +332,9 @@ def test_downsample_reinserts_last_point_when_bucketing_drops_it():
 
 def _at(iso_utc: str) -> int:
     """UTC 时间字符串 → 毫秒戳。"""
-    from datetime import datetime, timezone
+    from datetime import datetime
     return int(datetime.strptime(iso_utc, "%Y-%m-%d %H:%M").replace(
-        tzinfo=timezone.utc).timestamp() * 1000)
+        tzinfo=UTC).timestamp() * 1000)
 
 
 def test_daily_buckets_sum_to_the_total():

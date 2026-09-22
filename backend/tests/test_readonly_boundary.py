@@ -24,9 +24,9 @@ def test_account_module_makes_no_write_requests():
     """凭据在这个模块里用，所以这个模块必须只会读。"""
     offenders = []
     for node in ast.walk(_tree(ACCOUNT)):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr.lower() in WRITE_METHODS:
-                offenders.append(f"第 {node.lineno} 行调用了 .{node.func.attr}()")
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr.lower() in WRITE_METHODS):
+            offenders.append(f"第 {node.lineno} 行调用了 .{node.func.attr}()")
     assert not offenders, "account.py 出现了写请求：" + "；".join(offenders)
 
 

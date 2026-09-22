@@ -18,14 +18,17 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MASTER_KEY_ENV", "")
     monkeypatch.setattr(config, "ENV_PATH", tmp_path / "none.env")
     monkeypatch.setattr(config, "ALLOW_INSECURE_CREDENTIALS", False)
-    db.close(); vault.reset_cache(); db.connect()
+    db.close()
+    vault.reset_cache()
+    db.connect()
 
     from backend.app.routers import account as r
     app = FastAPI()
     app.include_router(r.router)
     with TestClient(app) as c:
         yield c, db, vault
-    db.close(); vault.reset_cache()
+    db.close()
+    vault.reset_cache()
 
 
 # ---------------------------------------------------------------- 增改
@@ -177,7 +180,8 @@ def test_bad_credentials_are_saved_but_reported_unverified(api, monkeypatch):
 def test_escape_hatch_allows_plaintext_when_explicitly_enabled(api, monkeypatch):
     """自己在前面挡了 TLS、后端拿不到 X-Forwarded-Proto 时的出口。"""
     client, db, vault = api
-    from backend.app import config, account as acct_mod
+    from backend.app import account as acct_mod
+    from backend.app import config
     monkeypatch.setattr(config, "ALLOW_INSECURE_CREDENTIALS", True)
 
     async def fake_balances(account_id=None):
