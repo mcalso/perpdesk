@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -81,6 +82,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="perpdesk", version="0.1.0", lifespan=lifespan)
+
+# 后端自己做 gzip：deploy/nginx.conf 里 nginx 也会压，但不经 nginx 直接访问
+# （SSH 隧道、Cursor/VSCode 端口转发）时就完全没有压缩了。资讯一页 50 条约 60 KB，
+# 隧道实测约 375 KB/s，压缩后约为 1/3。响应已带 Content-Encoding 时 nginx 不会重复压缩。
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_middleware(
     CORSMiddleware,

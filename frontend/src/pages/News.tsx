@@ -29,6 +29,9 @@ const SENT_MARK: Record<string, { text: string; cls: string }> = {
 }
 
 const PAGE = 50
+// 正文超过这个字数就先折叠成 3 行，点一下展开。
+// 金十的"数据整理"类汇总动辄上千字，不折叠的话一条就占满一屏
+const LONG_TEXT = 140
 
 /** 同一天的只显示时分，跨天才标日期 —— 快讯列表里满屏完整日期是噪音 */
 function stamp(ts: number): string {
@@ -46,14 +49,37 @@ export default function News() {
   const [status, setStatus] = useState<NewsStatus | null>(null)
   const [filter, setFilter] = useState<'all' | 'important' | 'mine'>('all')
   const [theme, setTheme] = useState('')
+  // 展开过的条目 id。按 id 记而不是按位置：60 秒自动刷新会在顶部插入新条目
+  const [opened, setOpened] = useState<Set<number>>(() => new Set())
+  const toggle = (id: number) => {
+    // 拖选文字复制时不要顺手把它折叠回去
+    if (window.getSelection()?.toString()) return
+    setOpened((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const [loaded, setLoaded] = useState(false)
   const [more, setMore] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [fetchingMore, setFetchingMore] = useState(false)
   const [err, setErr] = useState('')
-  // 用户翻到下面时不要把列表顶掉；只有在顶部才自动合并新条目
+  // 列表在面板内部滚动（.flash-list 有 max-height），"是否在顶部"要看它的 scrollTop，
+  // 不是 window.scrollY —— 否则翻到下面时自动刷新照样会触发
+  const listRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
   const atTop = useRef(true)
+  // 同一时间只发一个"更早的"请求：滚动时 IntersectionObserver 会连续触发
+  const inflight = useRef(false)
 
   const load = useCallback(async (reset: boolean) => {
+    if (!reset) {
+      if (inflight.current) return
+      inflight.current = true
+      setFetchingMore(true)
+    }
     try {
       const r = await api.news({
         limit: PAGE,
@@ -65,8 +91,13 @@ export default function News() {
       setStatus(r.status)
       setErr('')
       if (reset) {
-        setRows(r.rows)
-        setMore(r.rows.length >= PAGE)
+        setRows((prev) => {
+          // 已经往下翻过好几页时，刷新只把新条目插到顶部，不丢掉已加载的更早条目
+          if (prev.length <= PAGE) return r.rows
+          const seen = new Set(prev.map((x) => x.id))
+          return [...r.rows.filter((x) => !seen.has(x.id)), ...prev]
+        })
+        if (rows.length <= PAGE) setMore(r.rows.length >= PAGE)
       } else {
         // 按 id 去重：游标用的是时间，同一毫秒的条目可能跨页重复出现
         setRows((prev) => {
@@ -79,21 +110,46 @@ export default function News() {
       setErr((e as Error).message)
     } finally {
       setLoaded(true)
+      if (!reset) {
+        inflight.current = false
+        setFetchingMore(false)
+      }
     }
   }, [filter, theme, rows])
 
   useEffect(() => {
     setLoaded(false); setRows([]); setMore(true)
+    listRef.current?.scrollTo({ top: 0 })
     load(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, theme, acct])
 
   useEffect(() => {
     const t = setInterval(() => { if (atTop.current) load(true) }, 60000)
-    const onScroll = () => { atTop.current = window.scrollY < 120 }
+    const el = listRef.current
+    const onScroll = () => { atTop.current = (el?.scrollTop ?? 0) < 120 && window.scrollY < 120 }
+    el?.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => { clearInterval(t); window.removeEventListener('scroll', onScroll) }
-  }, [load])
+    return () => {
+      clearInterval(t)
+      el?.removeEventListener('scroll', onScroll)
+      window.removeEventListener('scroll', onScroll)
+    }
+  }, [load, loaded])
+
+  // 懒加载：列表底部的哨兵进入视野前 600px 就开始取下一页，滚到底时通常已经到了
+  const hasRows = rows.length > 0
+  const loadMore = useRef(() => {})
+  loadMore.current = () => { if (more && loaded) load(false) }
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) loadMore.current() },
+      { root: listRef.current, rootMargin: '0px 0px 600px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [loaded, hasRows])
 
   // 只有接了 news-collector（有主题标签）时才显示主题筛选
   const hasThemes = rows.some((f) => (f.themes ?? []).length > 0) || theme !== ''
@@ -148,14 +204,27 @@ export default function News() {
                 : '还没有抓到快讯，点「立即刷新」试试'}
           </div>
         ) : (
-          <div className="flash-list">
+          <div className="flash-list" ref={listRef}>
             {rows.map((f) => (
               <article key={f.id}
                        className={`flash${f.important || f.importance === 3 ? ' hot' : ''}`}>
                 <time className="flash-time mono">{stamp(f.ts)}</time>
                 <div className="flash-body">
                   {f.title && <div className="flash-title">{f.title}</div>}
-                  <div className="flash-text">{f.content}</div>
+                  {f.content.length > LONG_TEXT ? (
+                    <>
+                      <div className={`flash-text${opened.has(f.id) ? '' : ' clamp'}`}
+                           onClick={() => toggle(f.id)}
+                           title={opened.has(f.id) ? '' : '点击展开全文'}>
+                        {f.content}
+                      </div>
+                      <button className="flash-more" onClick={() => toggle(f.id)}>
+                        {opened.has(f.id) ? '收起 ▴' : `展开全文（${f.content.length} 字）▾`}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flash-text">{f.content}</div>
+                  )}
                   <div className="flash-meta">
                     {status && status.sources.length > 1 && (
                       <span className="tag">{SRC_LABEL[f.source] ?? f.source}</span>
@@ -186,16 +255,16 @@ export default function News() {
                 </div>
               </article>
             ))}
-          </div>
-        )}
-
-        {loaded && rows.length > 0 && (
-          <div className="pager">
-            {more ? (
-              <button className="sm" onClick={() => load(false)}>加载更早的</button>
-            ) : (
-              <span className="muted">没有更多了</span>
-            )}
+            {/* 懒加载哨兵：滚到附近自动取下一页；按钮保留给不支持 IntersectionObserver 的环境 */}
+            <div className="pager" ref={sentinelRef}>
+              {fetchingMore ? (
+                <span className="muted">加载中…</span>
+              ) : more ? (
+                <button className="sm" onClick={() => load(false)}>加载更早的</button>
+              ) : (
+                <span className="muted">没有更多了</span>
+              )}
+            </div>
           </div>
         )}
       </div>
