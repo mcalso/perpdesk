@@ -90,6 +90,9 @@ NEWS_POLL_INTERVAL = float(os.getenv("PERPDESK_NEWS_INTERVAL", "60"))
 NEWS_KEEP_DAYS = int(os.getenv("PERPDESK_NEWS_KEEP_DAYS", "30"))
 # 金十每条中英文各发一遍，默认只留中文，否则列表里每条都重复。cn / en / all
 NEWS_LANG = os.getenv("PERPDESK_NEWS_LANG", "cn")
+# 外部资讯库（news-collector 的 news.db）。设置后资讯页改读这个库（只读），
+# 上面的内置金十轮询不再启动 —— 采集、去重、标的归属都由 news-collector 负责。
+NEWS_DB = os.getenv("PERPDESK_NEWS_DB", "")
 
 # ---------------- 汇率 ----------------
 # 账户权益旁边那个「≈¥」用的 USDT→CNY 参考价。置空即完全关闭。

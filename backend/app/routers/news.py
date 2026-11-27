@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, Query
 
 from .. import account, db
+from ..news import external
 from ..news.poller import poller
 
 router = APIRouter(prefix="/api/news", tags=["news"])
@@ -44,8 +45,8 @@ async def flashes(
         if not symbols:
             return {"rows": [], "total": 0, "filteredBy": [], "status": poller.status()}
 
-    rows = db.page_flashes(limit=limit, before=before,
-                           important_only=important, symbols=symbols)
+    fetch = external.page if external.enabled() else db.page_flashes
+    rows = fetch(limit=limit, before=before, important_only=important, symbols=symbols)
     return {
         "rows": [_row(r) for r in rows],
         "filteredBy": symbols or [],

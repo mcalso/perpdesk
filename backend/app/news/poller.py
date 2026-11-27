@@ -10,7 +10,7 @@ import time
 import httpx
 
 from .. import config, db
-from . import relevance
+from . import external, relevance
 from .sources import Flash, build_sources
 
 log = logging.getLogger("perpdesk.news")
@@ -38,6 +38,9 @@ class NewsPoller:
         return self._client
 
     async def start(self) -> None:
+        if external.enabled():
+            log.info("资讯改读外部库 %s，内置轮询不启动", config.NEWS_DB)
+            return
         if not config.NEWS_SOURCES:
             log.info("未启用任何资讯源，轮询不启动")
             return
@@ -66,6 +69,8 @@ class NewsPoller:
 
     async def poll_once(self) -> int:
         """抓一轮，返回新增条数。各源互相独立，一个失败不影响其他。"""
+        if external.enabled():
+            return 0                      # 采集由外部进程负责
         if self.symbol_provider is not None:
             # 取不到就沿用上一轮的映射，总比丢掉关联标的好
             with contextlib.suppress(Exception):
@@ -106,6 +111,8 @@ class NewsPoller:
                 json.dumps(syms, ensure_ascii=False))
 
     def status(self) -> dict:
+        if external.enabled():
+            return external.status()
         stats = db.flash_stats()
         return {
             "sources": list(config.NEWS_SOURCES),

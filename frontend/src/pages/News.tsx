@@ -9,6 +9,11 @@ const CAT_LABEL: Record<string, string> = {
   macro: '宏观', equity: '股市', crypto: '加密', commodity: '商品', geo: '地缘',
 }
 
+// 外部资讯库（news-collector）接入后会有多个来源，列表里标一下出处
+const SRC_LABEL: Record<string, string> = {
+  jin10: '金十', binance: '币安公告', okx: 'OKX 公告', bybit: 'Bybit 公告', bitget: 'Bitget 公告',
+}
+
 const PAGE = 50
 
 /** 同一天的只显示时分，跨天才标日期 —— 快讯列表里满屏完整日期是噪音 */
@@ -87,7 +92,7 @@ export default function News() {
         <div className="panel-head">
           资讯快讯
           <span className="panel-sub">
-            {status ? `${status.sources.join('、')} · 共 ${status.total} 条` : ''}
+            {status ? `${status.sources.map((x) => SRC_LABEL[x] ?? x).join('、')} · 共 ${status.total} 条` : ''}
             {status?.ageSec != null && ` · ${status.ageSec.toFixed(0)}s 前更新`}
             {status?.error && ` · ⚠ ${status.error}`}
           </span>
@@ -125,6 +130,9 @@ export default function News() {
                   {f.title && <div className="flash-title">{f.title}</div>}
                   <div className="flash-text">{f.content}</div>
                   <div className="flash-meta">
+                    {status && status.sources.length > 1 && (
+                      <span className="tag">{SRC_LABEL[f.source] ?? f.source}</span>
+                    )}
                     {f.symbols.map((s) => (
                       <button key={s} className="flash-sym" title={`查看 ${s} 图表`}
                               onClick={() => nav(`/chart/${s}`, { viewTransition: true })}>
