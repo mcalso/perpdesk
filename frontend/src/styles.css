@@ -321,6 +321,15 @@ tbody tr.clickable:hover { box-shadow: inset 2px 0 0 var(--accent); }
   background: var(--panel-3); color: var(--text-dim);
   border: 1px solid transparent;
 }
+/* 资讯页的事件主题标签可点（点了按主题筛选），外观仍与 .tag 一致 */
+button.tag {
+  padding: 2px 7px; font-size: 10px; line-height: inherit; border-radius: 4px;
+  background: var(--panel-3); border: 1px solid transparent;
+}
+button.tag:hover:not(:disabled) { border-color: var(--border-lit); color: var(--text); }
+.tag.up { color: var(--up); }
+.tag.down { color: var(--down); }
+
 /* 主数值下面的近似折算（如权益的人民币估值）。
    比主数值小、比 .sub 大：它是同一个数的另一种说法，不是附注。 */
 .approx {

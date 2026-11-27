@@ -9,6 +9,25 @@ const CAT_LABEL: Record<string, string> = {
   macro: '宏观', equity: '股市', crypto: '加密', commodity: '商品', geo: '地缘',
 }
 
+// 外部资讯库（news-collector）接入后会有多个来源，列表里标一下出处
+const SRC_LABEL: Record<string, string> = {
+  jin10: '金十', binance: '币安公告', okx: 'OKX 公告', bybit: 'Bybit 公告', bitget: 'Bitget 公告',
+}
+
+// news-collector 的事件主题（与 collector/tagger.py 的 THEMES 对应）
+const THEME_LABEL: Record<string, string> = {
+  macro_data: '经济数据', central_bank: '央行', fiscal: '财政', trade: '贸易关税',
+  geopolitics: '地缘', politics: '政治', regulation: '监管',
+  earnings: '财报', guidance: '业绩指引', analyst: '机构观点', mna: '并购',
+  capital: '融资回购', product: '产品订单', management: '高管', legal: '诉讼调查',
+  operations: '生产经营', commodity: '商品供需', market_move: '行情异动', flows: '资金流向',
+  fx_rates: '汇率利率', crypto: '加密行业', exchange_notice: '交易所公告', other: '其他',
+}
+const SENT_MARK: Record<string, { text: string; cls: string }> = {
+  bullish: { text: '利多', cls: 'up' }, bearish: { text: '利空', cls: 'down' },
+  mixed: { text: '多空交织', cls: 'muted' },
+}
+
 const PAGE = 50
 
 /** 同一天的只显示时分，跨天才标日期 —— 快讯列表里满屏完整日期是噪音 */
@@ -26,6 +45,7 @@ export default function News() {
   const [rows, setRows] = useState<Flash[]>([])
   const [status, setStatus] = useState<NewsStatus | null>(null)
   const [filter, setFilter] = useState<'all' | 'important' | 'mine'>('all')
+  const [theme, setTheme] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [more, setMore] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -40,6 +60,7 @@ export default function News() {
         before: reset ? undefined : rows[rows.length - 1]?.ts,
         important: filter === 'important',
         mine: filter === 'mine',
+        theme: theme || undefined,
       })
       setStatus(r.status)
       setErr('')
@@ -59,13 +80,13 @@ export default function News() {
     } finally {
       setLoaded(true)
     }
-  }, [filter, rows])
+  }, [filter, theme, rows])
 
   useEffect(() => {
     setLoaded(false); setRows([]); setMore(true)
     load(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, acct])
+  }, [filter, theme, acct])
 
   useEffect(() => {
     const t = setInterval(() => { if (atTop.current) load(true) }, 60000)
@@ -73,6 +94,9 @@ export default function News() {
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => { clearInterval(t); window.removeEventListener('scroll', onScroll) }
   }, [load])
+
+  // 只有接了 news-collector（有主题标签）时才显示主题筛选
+  const hasThemes = rows.some((f) => (f.themes ?? []).length > 0) || theme !== ''
 
   const refresh = async () => {
     setBusy(true)
@@ -87,7 +111,7 @@ export default function News() {
         <div className="panel-head">
           资讯快讯
           <span className="panel-sub">
-            {status ? `${status.sources.join('、')} · 共 ${status.total} 条` : ''}
+            {status ? `${status.sources.map((x) => SRC_LABEL[x] ?? x).join('、')} · 共 ${status.total} 条` : ''}
             {status?.ageSec != null && ` · ${status.ageSec.toFixed(0)}s 前更新`}
             {status?.error && ` · ⚠ ${status.error}`}
           </span>
@@ -98,6 +122,13 @@ export default function News() {
             <button className={filter === 'mine' ? 'on' : ''}
                     onClick={() => setFilter('mine')}>与我相关</button>
           </div>
+          {hasThemes && (
+            <select className="sm" value={theme} onChange={(e) => setTheme(e.target.value)}
+                    title="按事件主题筛选">
+              <option value="">全部主题</option>
+              {Object.entries(THEME_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          )}
           <div className="spacer" />
           <button className="sm" onClick={refresh} disabled={busy}>
             {busy ? '抓取中…' : '立即刷新'}
@@ -119,12 +150,16 @@ export default function News() {
         ) : (
           <div className="flash-list">
             {rows.map((f) => (
-              <article key={f.id} className={`flash${f.important ? ' hot' : ''}`}>
+              <article key={f.id}
+                       className={`flash${f.important || f.importance === 3 ? ' hot' : ''}`}>
                 <time className="flash-time mono">{stamp(f.ts)}</time>
                 <div className="flash-body">
                   {f.title && <div className="flash-title">{f.title}</div>}
                   <div className="flash-text">{f.content}</div>
                   <div className="flash-meta">
+                    {status && status.sources.length > 1 && (
+                      <span className="tag">{SRC_LABEL[f.source] ?? f.source}</span>
+                    )}
                     {f.symbols.map((s) => (
                       <button key={s} className="flash-sym" title={`查看 ${s} 图表`}
                               onClick={() => nav(`/chart/${s}`, { viewTransition: true })}>
@@ -135,6 +170,14 @@ export default function News() {
                     {f.tags.filter((t) => CAT_LABEL[t]).map((t) => (
                       <span key={t} className="tag">{CAT_LABEL[t]}</span>
                     ))}
+                    {(f.themes ?? []).map((t) => (
+                      <button key={t} className="tag" title="只看这个主题"
+                              onClick={() => setTheme(t)}>{THEME_LABEL[t] ?? t}</button>
+                    ))}
+                    {f.sentiment && SENT_MARK[f.sentiment] && (
+                      <span className={`tag ${SENT_MARK[f.sentiment].cls}`}>{SENT_MARK[f.sentiment].text}</span>
+                    )}
+                    {f.importance === 3 && <span className="tag down" title="大模型判为重大">重大</span>}
                     {f.link && (
                       <a className="flash-link muted" href={f.link}
                          target="_blank" rel="noopener noreferrer">原文 ↗</a>

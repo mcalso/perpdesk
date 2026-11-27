@@ -84,6 +84,10 @@ export interface Flash {
   important: boolean
   tags: string[]
   symbols: string[]
+  /** 外部资讯库（news-collector）的事件主题标签；内置库为空 */
+  themes?: string[]
+  sentiment?: '' | 'bullish' | 'bearish' | 'neutral' | 'mixed'
+  importance?: number
 }
 
 export interface NewsStatus {
@@ -207,12 +211,13 @@ export const api = {
     req<{ ok: boolean; verified: boolean; error?: string; assets?: number }>(
       `/api/account/accounts/${id}/credentials`, { method: 'PUT', body: JSON.stringify(body) }),
 
-  news: (opts: { limit?: number; before?: number; important?: boolean; mine?: boolean } = {}) => {
+  news: (opts: { limit?: number; before?: number; important?: boolean; mine?: boolean; theme?: string } = {}) => {
     const q = new URLSearchParams()
     q.set('limit', String(opts.limit ?? 50))
     if (opts.before) q.set('before', String(opts.before))
     if (opts.important) q.set('important', 'true')
     if (opts.mine) q.set('mine', 'true')
+    if (opts.theme) q.set('theme', opts.theme)
     return req<{ rows: Flash[]; filteredBy: string[]; status: NewsStatus }>(
       `/api/news?${acct(q)}`)
   },
