@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -33,25 +34,53 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
+def _has_tags(c: sqlite3.Connection) -> bool:
+    row = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='news_tag'").fetchone()
+    return row is not None
+
+
 def page(limit: int = 50, before: int | None = None, important_only: bool = False,
-         symbols: list[str] | None = None) -> list[dict[str, Any]]:
-    """与 db.page_flashes 同样的语义：按时间倒序，before 为上一页最后一条的 ts。"""
-    args: list = []
+         symbols: list[str] | None = None, theme: str | None = None) -> list[dict[str, Any]]:
+    """与 db.page_flashes 同样的语义：按时间倒序，before 为上一页最后一条的 ts。
+
+    news-collector 给每条资讯打了事件主题标签（news_tag / news_theme 表）时一并返回：
+    themes / sentiment / scope / importance。"只看重要"同时包含源站标记的重要和
+    大模型判为重大（importance = 3）的。theme 按主题筛选。
+    """
+    c = _conn()
+    tags = _has_tags(c)
+    cols = "n.*" + (", t.themes AS t_themes, t.sentiment AS t_sentiment, t.scope AS t_scope, "
+                    "t.importance AS t_importance" if tags else "")
+    joins = " LEFT JOIN news_tag t ON t.news_id = n.id AND t.status = 'ok'" if tags else ""
+    where, args = [], []
     if symbols:
-        q = ",".join("?" * len(symbols))
-        sql = (f"SELECT DISTINCT n.* FROM news_symbol s JOIN news n ON n.id = s.news_id "
-               f"WHERE s.symbol IN ({q})")
+        joins = f" JOIN news_symbol s ON s.news_id = n.id{joins}"
+        where.append(f"s.symbol IN ({','.join('?' * len(symbols))})")
         args += symbols
-    else:
-        sql = "SELECT n.* FROM news n WHERE 1=1"
+    if theme and tags:
+        joins += " JOIN news_theme th ON th.news_id = n.id"
+        where.append("th.theme = ?")
+        args.append(theme)
     if before:
-        sql += " AND n.ts < ?"
+        where.append("n.ts < ?")
         args.append(before)
     if important_only:
-        sql += " AND n.important = 1"
+        where.append("(n.important = 1" + (" OR t.importance = 3)" if tags else ")"))
+    sql = f"SELECT DISTINCT {cols} FROM news n{joins}"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY n.ts DESC, n.id DESC LIMIT ?"
     args.append(limit)
-    return [dict(r) for r in _conn().execute(sql, args)]
+    out = []
+    for r in c.execute(sql, args):
+        d = dict(r)
+        if tags:
+            d["themes"] = json.loads(d.pop("t_themes") or "[]")
+            d["sentiment"] = d.pop("t_sentiment") or ""
+            d["scope"] = d.pop("t_scope") or ""
+            d["importance"] = d.pop("t_importance") or 0
+        out.append(d)
+    return out
 
 
 def status() -> dict[str, Any]:

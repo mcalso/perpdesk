@@ -21,6 +21,10 @@ def _row(r: dict) -> dict:
         "important": bool(r["important"]),
         "tags": json.loads(r["tags"] or "[]"),
         "symbols": json.loads(r["symbols"] or "[]"),
+        # 外部资讯库（news-collector）的事件主题标签；内置库没有，给空值
+        "themes": r.get("themes") or [],
+        "sentiment": r.get("sentiment") or "",
+        "importance": r.get("importance") or 0,
     }
 
 
@@ -31,6 +35,7 @@ async def flashes(
     important: bool = Query(False, description="只看源站标为重要的"),
     mine: bool = Query(False, description="只看与当前账户持仓/自选相关的"),
     account_id: int | None = Query(None),
+    theme: str | None = Query(None, description="按事件主题筛选（仅外部资讯库）"),
 ) -> dict:
     """快讯列表，按时间倒序。
 
@@ -45,8 +50,12 @@ async def flashes(
         if not symbols:
             return {"rows": [], "total": 0, "filteredBy": [], "status": poller.status()}
 
-    fetch = external.page if external.enabled() else db.page_flashes
-    rows = fetch(limit=limit, before=before, important_only=important, symbols=symbols)
+    if external.enabled():
+        rows = external.page(limit=limit, before=before, important_only=important,
+                             symbols=symbols, theme=theme)
+    else:
+        rows = db.page_flashes(limit=limit, before=before, important_only=important,
+                               symbols=symbols)
     return {
         "rows": [_row(r) for r in rows],
         "filteredBy": symbols or [],

@@ -60,3 +60,28 @@ def test_read_only(ext_db):
 def test_disabled_by_default(monkeypatch):
     monkeypatch.setattr(config, "NEWS_DB", "")
     assert not external.enabled()
+
+
+def test_tags_joined_and_theme_filter(ext_db):
+    c = sqlite3.connect(config.NEWS_DB)
+    c.executescript("""
+        CREATE TABLE news_tag (news_id INTEGER PRIMARY KEY, status TEXT, themes TEXT,
+            sentiment TEXT, scope TEXT, importance INTEGER, model TEXT, version INTEGER,
+            attempts INTEGER,
+            error TEXT, updated_at INTEGER);
+        CREATE TABLE news_theme (news_id INTEGER, theme TEXT, ts INTEGER);
+        INSERT INTO news_tag VALUES
+            (2, 'ok', '["exchange_notice"]', 'neutral', 'single', 1, 'm', 1, 1, '', 0),
+            (3, 'ok', '["geopolitics"]', 'bearish', 'macro', 3, 'm', 1, 1, '', 0);
+        INSERT INTO news_theme VALUES (2, 'exchange_notice', 2000), (3, 'geopolitics', 3000);
+    """)
+    c.commit()
+    c.close()
+    external._local.__dict__.clear()
+    rows = {r["id"]: r for r in external.page()}
+    assert rows[3]["themes"] == ["geopolitics"] and rows[3]["importance"] == 3
+    assert rows[1]["themes"] == [] and rows[1]["importance"] == 0          # 还没打标签
+    assert [r["id"] for r in external.page(theme="geopolitics")] == [3]
+    # "只看重要" = 源站标记重要 或 大模型判为重大
+    assert [r["id"] for r in external.page(important_only=True)] == [3, 1]
+    assert [r["id"] for r in external.page(theme="exchange_notice", symbols=["XIAOMIUSDT"])] == [2]
