@@ -762,6 +762,16 @@ button.sm { padding: 3px 9px; font-size: var(--fs-sm); }
 .flash-title { font-weight: 600; margin-bottom: 3px; line-height: 1.45; }
 .flash-text { color: var(--text-dim); line-height: 1.65; word-break: break-word; }
 .flash-title + .flash-text { font-size: 12px; }
+/* 长正文折叠：3 行截断，点击正文或下方按钮展开 */
+.flash-text.clamp {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden; cursor: pointer;
+}
+.flash-more {
+  margin-top: 2px; padding: 0; border: 0; background: none;
+  font-size: 11px; color: var(--accent-lit);
+}
+.flash-more:hover:not(:disabled) { background: none; border: 0; text-decoration: underline; }
 
 .flash-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; }
 .flash-sym {
